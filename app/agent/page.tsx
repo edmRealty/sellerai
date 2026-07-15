@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getListingEventActor, getListingEventLabel, type ListingEvent } from "@/lib/event-labels";
 
 const LISTING_KEY = "seller_ai_listing";
 const SESSION_KEY = "seller_ai_session_v2";
@@ -92,6 +93,15 @@ const statusTone = (status: DocStatus) => {
   return { background: "#e2e8f0", color: "#475569" };
 };
 
+const relativeTime = (timestamp?: string) => {
+  if (!timestamp) return "Just now";
+  const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 1000));
+  if (seconds < 60) return "Just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+};
+
 const normalizeCnStatus = (status?: PaperworkRecord["consumerNoticeStatus"]): DocStatus => {
   if (status === "signed") return "approved";
   if (status === "sent") return "sent";
@@ -170,6 +180,7 @@ export default function AgentApprovalsPage() {
   const [session, setSession] = useState<any>(null);
   const [note, setNote] = useState("");
   const [serverMode, setServerMode] = useState(false);
+  const [events, setEvents] = useState<ListingEvent[]>([]);
 
   // Server-backed portal: list every assigned listing from Supabase.
   // Falls back to the browser-local prototype when Supabase is not
@@ -241,6 +252,32 @@ export default function AgentApprovalsPage() {
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!serverMode || !selectedId) {
+      setEvents([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadEvents = async () => {
+      try {
+        const response = await fetch(`/api/listings/events?listingId=${encodeURIComponent(selectedId)}`);
+        if (!response.ok || cancelled) return;
+        const payload = await response.json();
+        setEvents(Array.isArray(payload?.events) ? payload.events : []);
+      } catch {
+        if (!cancelled) setEvents([]);
+      }
+    };
+
+    loadEvents();
+    const interval = window.setInterval(loadEvents, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedId, serverMode]);
 
   const selected = listings.find((item) => item.id === selectedId) ?? listings[0] ?? null;
   const docs = buildDocs(selected?.data ?? null);
@@ -417,6 +454,25 @@ export default function AgentApprovalsPage() {
               </div>
               {note ? <p style={{ marginTop: 14, color: "#166534", fontWeight: 700 }}>{note}</p> : null}
             </div>
+
+            {serverMode && selected ? (
+              <div style={cardStyle}>
+                <h2 style={{ margin: 0, fontSize: 22 }}>Timeline</h2>
+                <p style={{ margin: "6px 0 0", color: "#64748b" }}>Server activity for this listing file.</p>
+                {events.length === 0 ? <p style={{ color: "#64748b", marginTop: 16 }}>No server activity recorded yet.</p> : null}
+                <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+                  {[...events].reverse().map((event) => (
+                    <div key={event.id || `${event.event_type}-${event.created_at}`} style={{ display: "flex", justifyContent: "space-between", gap: 14, border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, background: "#f8fafc" }}>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 800 }}>{getListingEventLabel(event)}</p>
+                        <p style={{ margin: "5px 0 0", color: "#64748b", fontSize: 13 }}>{relativeTime(event.created_at)}</p>
+                      </div>
+                      <span style={pillStyle}>{getListingEventActor(event, "agent")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
       </section>
