@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getListingEventActor, getListingEventLabel, type ListingEvent } from "@/lib/event-labels";
+import { getListingStatusLabel, type ListingStatus, type ReadinessItem } from "@/lib/listing-status";
 
 const LISTING_KEY = "seller_ai_listing";
 const SESSION_KEY = "seller_ai_session_v2";
@@ -13,6 +14,13 @@ type DocStatus = "not_started" | "requested" | "sent" | "signed" | "approved" | 
 type ListingRecord = {
   address?: string;
   finalPrice?: number | null;
+  photosDeferred?: boolean;
+  description?: string;
+  acknowledgements?: {
+    agency?: boolean;
+    fairHousing?: boolean;
+    mls?: boolean;
+  };
   seller?: {
     name?: string;
     email?: string;
@@ -43,6 +51,7 @@ type AgentListing = {
   id: string;
   address: string;
   data: ListingRecord;
+  status?: ListingStatus;
   source: "current" | "history" | "server";
   updatedAt: number;
 };
@@ -67,6 +76,13 @@ type ServerDocument = {
 };
 
 type PaperworkRecord = NonNullable<ListingRecord["paperwork"]>;
+
+type ReadinessPayload = {
+  status: ListingStatus;
+  allowedNext: ListingStatus[];
+  checklist: ReadinessItem[];
+  failing: ReadinessItem[];
+};
 
 const readJson = <T,>(key: string): T | null => {
   if (typeof window === "undefined") return null;
@@ -192,6 +208,7 @@ export default function AgentApprovalsPage() {
   const [serverMode, setServerMode] = useState(false);
   const [events, setEvents] = useState<ListingEvent[]>([]);
   const [serverDocuments, setServerDocuments] = useState<ServerDocument[]>([]);
+  const [readiness, setReadiness] = useState<ReadinessPayload | null>(null);
 
   // Server-backed portal: list every assigned listing from Supabase.
   // Falls back to the browser-local prototype when Supabase is not
@@ -206,6 +223,7 @@ export default function AgentApprovalsPage() {
         id: String(row.id),
         address: row.address || row.data?.address || "Unknown address",
         data: (row.data ?? {}) as ListingRecord,
+        status: row.status as ListingStatus,
         source: "server" as const,
         updatedAt: row.updated_at ? Date.parse(row.updated_at) : 0
       }));
@@ -316,6 +334,36 @@ export default function AgentApprovalsPage() {
     };
   }, [selectedId, serverMode]);
 
+  const loadReadiness = async (listingId = selectedId) => {
+    if (!serverMode || !listingId) {
+      setReadiness(null);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/agent/listings/${encodeURIComponent(listingId)}/readiness`);
+      if (!response.ok) {
+        setReadiness(null);
+        return;
+      }
+      const payload = await response.json();
+      setReadiness(payload?.status && Array.isArray(payload?.checklist) ? payload as ReadinessPayload : null);
+    } catch {
+      setReadiness(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!serverMode || !selectedId) {
+      setReadiness(null);
+      return;
+    }
+
+    loadReadiness();
+    const interval = window.setInterval(loadReadiness, 15000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, serverMode]);
+
   const selected = listings.find((item) => item.id === selectedId) ?? listings[0] ?? null;
   const docs = buildDocs(selected?.data ?? null);
   const signedConsumerNotice = serverDocuments.find((document) => document.kind === "consumer_notice" && document.status === "signed" && document.has_file);
@@ -409,6 +457,59 @@ export default function AgentApprovalsPage() {
     }
   };
 
+  const transitionStatus = async (nextStatus: ListingStatus) => {
+    if (!serverMode || !selected || !readiness) return;
+
+    const requiresOverride = (nextStatus === "approved" || nextStatus === "published") && readiness.failing.length > 0;
+    let override = false;
+    let overrideNote = "";
+    if (requiresOverride) {
+      const confirmed = window.confirm(
+        `${readiness.failing.length} readiness item${readiness.failing.length === 1 ? " is" : "s are"} incomplete. Continue with an audited override?`
+      );
+      if (!confirmed) return;
+      const suppliedNote = window.prompt("Enter the reason for this readiness override:");
+      if (!suppliedNote?.trim()) {
+        setNote("A written override reason is required.");
+        return;
+      }
+      override = true;
+      overrideNote = suppliedNote.trim();
+    }
+
+    try {
+      const response = await fetch(`/api/agent/listings/${selected.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus, override, note: overrideNote || undefined })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        if (Array.isArray(payload?.checklist)) {
+          setReadiness({
+            status: readiness.status,
+            allowedNext: Array.isArray(payload?.allowedNext) ? payload.allowedNext : readiness.allowedNext,
+            checklist: payload.checklist,
+            failing: Array.isArray(payload?.failing) ? payload.failing : payload.checklist.filter((item: ReadinessItem) => !item.ok)
+          });
+        }
+        setNote(`Status update failed: ${payload?.error ?? response.status}`);
+        return;
+      }
+      setReadiness({
+        status: payload.status,
+        allowedNext: payload.allowedNext,
+        checklist: payload.checklist,
+        failing: payload.failing
+      });
+      setNote(`${getListingStatusLabel(payload.status)} recorded${payload.override ? " with an audited override" : ""}.`);
+      await loadFromServer();
+      await loadReadiness(selected.id);
+    } catch {
+      setNote("Status update failed: network error.");
+    }
+  };
+
   return (
     <main style={{ minHeight: "100vh", background: "#f8fafc", color: "#0f172a", padding: 24 }}>
       <section style={{ maxWidth: 1180, margin: "0 auto" }}>
@@ -439,6 +540,7 @@ export default function AgentApprovalsPage() {
                   <button key={item.id} onClick={() => setSelectedId(item.id)} style={addressButtonStyle(selected?.id === item.id)}>
                     <strong>{item.address}</strong>
                     <span style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>{item.data.seller?.name || "Seller not entered"}</span>
+                    {item.source === "server" ? <span style={{ marginTop: 8, color: "#075985", fontSize: 12, fontWeight: 800 }}>{getListingStatusLabel(item.status)}</span> : null}
                     <span style={{ marginTop: 8, fontSize: 12, fontWeight: 800, color: itemPending ? "#c2410c" : "#475569" }}>{itemPending} pending doc{itemPending === 1 ? "" : "s"}</span>
                   </button>
                 );
@@ -463,6 +565,35 @@ export default function AgentApprovalsPage() {
                 <Fact label="Working estimate" value={formatCurrency(selected?.data.finalPrice || selected?.data.valuation?.average)} />
               </div>
             </div>
+
+            {serverMode && selected && readiness ? (
+              <div style={cardStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 22 }}>Publishing readiness</h2>
+                    <p style={{ margin: "6px 0 0", color: "#64748b" }}>Current status: <strong style={{ color: "#0f172a" }}>{getListingStatusLabel(readiness.status)}</strong></p>
+                  </div>
+                  <span style={{ ...pillStyle, background: readiness.failing.length ? "#ffedd5" : "#dcfce7", color: readiness.failing.length ? "#9a3412" : "#166534" }}>
+                    {readiness.failing.length ? `${readiness.failing.length} item${readiness.failing.length === 1 ? "" : "s"} to review` : "Ready for the next gate"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+                  {readiness.checklist.map((item) => (
+                    <div key={item.key} style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 12, background: item.ok ? "#f0fdf4" : "#fff7ed" }}>
+                      <strong>{item.ok ? "Complete" : "Needs attention"}: {item.label}</strong>
+                      <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>{item.detail}</p>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+                  {readiness.allowedNext.map((status) => (
+                    <button key={status} type="button" onClick={() => transitionStatus(status)} style={buttonStyle("primary")}>
+                      Move to {getListingStatusLabel(status)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center" }}>

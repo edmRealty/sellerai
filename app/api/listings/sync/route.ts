@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthContext } from '@/lib/auth';
 import { recordListingEvent } from '@/lib/listing-events';
+import { getClientId, guardRateLimit, RateLimitError, rateLimitResponse } from '@/lib/api-safety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,16 @@ export const dynamic = 'force-dynamic';
  * keeps its localStorage-only behavior.
  */
 export async function POST(req: Request) {
+    try {
+        guardRateLimit({ bucket: 'listing-sync', id: getClientId(req), maxCalls: 30, windowMs: 60_000, blockMs: 60_000 });
+    } catch (error) {
+        if (error instanceof RateLimitError) {
+            const { retryAfterSeconds, headers } = rateLimitResponse(error);
+            return NextResponse.json({ synced: false, error: error.message, retryAfterSeconds }, { status: 429, headers });
+        }
+        throw error;
+    }
+
     const ctx = await getAuthContext();
     if (!ctx.configured) return NextResponse.json({ configured: false, synced: false });
     if (!ctx.auth) return NextResponse.json({ configured: true, synced: false, error: 'unauthenticated' }, { status: 401 });
@@ -29,10 +40,10 @@ export async function POST(req: Request) {
     }
 
     const step = typeof body?.step === 'string' ? body.step.slice(0, 64) : 'confirm';
-    const data = body?.data && typeof body.data === 'object' ? body.data : {};
+    const data = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {};
     const clientSessionId =
         typeof body?.clientSessionId === 'string' ? body.clientSessionId.slice(0, 128) : null;
-    const requestedId = typeof body?.listingId === 'string' ? body.listingId : null;
+    const requestedId = typeof body?.listingId === 'string' ? body.listingId.slice(0, 128) : null;
 
     const promoted = {
         address: typeof data?.address === 'string' ? data.address.slice(0, 512) : '',

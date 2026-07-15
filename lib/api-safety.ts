@@ -54,6 +54,14 @@ export function guardRateLimit(opts: {
   globalRate.set(key, entry);
 }
 
+export function rateLimitResponse(error: RateLimitError) {
+  const retryAfterSeconds = Math.max(1, Math.ceil(error.retryAfterMs / 1000));
+  return {
+    retryAfterSeconds,
+    headers: { "Retry-After": String(retryAfterSeconds) }
+  };
+}
+
 export function getCache<T>(key: string): T | null {
   const entry = globalCache.get(key);
   if (!entry) return null;

@@ -33,7 +33,7 @@ export function getListingEventLabel(event: Pick<ListingEvent, "event_type" | "p
     case "price_changed":
       return "Working price updated";
     case "status_changed":
-      return `Listing status: ${readableStep(payload.to)}`;
+      return `Listing status: ${readableStep(payload.from)} → ${readableStep(payload.to)}`;
     default:
       return event.event_type;
   }

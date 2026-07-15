@@ -246,6 +246,7 @@ type ListingData = {
   };
   finalPrice: number | null;
   photos: string[];
+  photosDeferred: boolean;
   description: string;
   signed: boolean;
   activated: boolean;
@@ -333,6 +334,7 @@ const DEFAULT_DATA: ListingData = {
   },
   finalPrice: null,
   photos: [],
+  photosDeferred: false,
   description: "",
   signed: false,
   activated: false,
@@ -3537,7 +3539,7 @@ export default function Home() {
                 multiple
                 onChange={(e) => {
                   const files = Array.from(e.target.files || []);
-                  setData((prev) => ({ ...prev, photos: files.map((file) => file.name) }));
+                  setData((prev) => ({ ...prev, photos: files.map((file) => file.name), photosDeferred: false }));
                   void Promise.all(files.map((file) => uploadListingPhoto(file)));
                 }}
               />
@@ -3558,7 +3560,10 @@ export default function Home() {
                 >
                   Photo tips
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={handlePhotosContinue}>
+                <button type="button" className="btn btn-ghost" onClick={() => {
+                  setData((prev) => ({ ...prev, photosDeferred: true }));
+                  handlePhotosContinue();
+                }}>
                   Upload later
                 </button>
               </div>

@@ -2,10 +2,21 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { signConsumerNoticeToken } from "@/lib/esign";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getClientId, guardRateLimit, RateLimitError, rateLimitResponse } from "@/lib/api-safety";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  try {
+    guardRateLimit({ bucket: "consumer-notice-start", id: getClientId(req), maxCalls: 5, windowMs: 60_000, blockMs: 60_000 });
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      const { retryAfterSeconds, headers } = rateLimitResponse(error);
+      return NextResponse.json({ success: false, error: error.message, retryAfterSeconds }, { status: 429, headers });
+    }
+    throw error;
+  }
+
   try {
     const body = await req.json();
     const signerEmail = String(body?.signerEmail || "").trim();

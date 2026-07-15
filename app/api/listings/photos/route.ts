@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth";
 import { recordListingEvent } from "@/lib/listing-events";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getClientId, guardRateLimit, RateLimitError, rateLimitResponse } from "@/lib/api-safety";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,16 @@ const unauthorized = (configured: boolean) =>
   NextResponse.json({ configured, error: "unauthenticated" }, { status: 401 });
 
 export async function POST(req: Request) {
+  try {
+    guardRateLimit({ bucket: "listing-photo-upload", id: getClientId(req), maxCalls: 10, windowMs: 60_000, blockMs: 60_000 });
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      const { retryAfterSeconds, headers } = rateLimitResponse(error);
+      return NextResponse.json({ error: error.message, retryAfterSeconds }, { status: 429, headers });
+    }
+    throw error;
+  }
+
   const ctx = await getAuthContext();
   if (!ctx.configured) return NextResponse.json({ configured: false, error: "not found" }, { status: 404 });
   if (!ctx.auth) return unauthorized(true);

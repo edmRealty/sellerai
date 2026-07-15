@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthContext, isStaff } from '@/lib/auth';
 import { recordListingEvent } from '@/lib/listing-events';
+import { getClientId, guardRateLimit, RateLimitError, rateLimitResponse } from '@/lib/api-safety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,16 @@ type ApproveAction = 'approve-cn' | 'approve-listing';
  * change up via its wait-step polling.
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
+    try {
+        guardRateLimit({ bucket: 'agent-approval', id: getClientId(req), maxCalls: 20, windowMs: 60_000, blockMs: 60_000 });
+    } catch (error) {
+        if (error instanceof RateLimitError) {
+            const { retryAfterSeconds, headers } = rateLimitResponse(error);
+            return NextResponse.json({ ok: false, error: error.message, retryAfterSeconds }, { status: 429, headers });
+        }
+        throw error;
+    }
+
     const ctx = await getAuthContext();
     if (!ctx.configured) return NextResponse.json({ configured: false, ok: false });
     if (!ctx.auth) return NextResponse.json({ ok: false, error: 'unauthenticated' }, { status: 401 });

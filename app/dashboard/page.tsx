@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { getListingEventActor, getListingEventLabel, type ListingEvent } from "@/lib/event-labels";
+import { getListingStatusLabel, type ListingStatus } from "@/lib/listing-status";
 
 const TASKS = [
   "Install lockbox",
@@ -22,6 +23,7 @@ type ServerListing = {
   id: string;
   address?: string;
   step?: string;
+  status?: ListingStatus;
   working_price?: number | null;
   consumer_notice_status?: string | null;
   listing_agreement_status?: string | null;
@@ -177,6 +179,7 @@ function ServerStatusStrip({ listing }: { listing: ServerListing }) {
   const consumerNotice = documentStatus(listing.consumer_notice_status);
   const listingAgreement = documentStatus(listing.listing_agreement_status);
   const facts = [
+    { label: "Listing status", value: getListingStatusLabel(listing.status), state: { label: "Live", color: "#075985", background: "#e0f2fe" } },
     { label: "Current step", value: titleCase(listing.step), state: { label: "In progress", color: "#075985", background: "#e0f2fe" } },
     { label: "Consumer Notice", value: consumerNotice.label, state: consumerNotice },
     { label: "Listing Agreement", value: listingAgreement.label, state: listingAgreement },
