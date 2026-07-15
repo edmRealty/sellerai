@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-export function middleware(request: NextRequest) {
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() || '';
+const supabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+
+export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const method = request.method.toUpperCase();
 
-    // Allow all API routes
+    // Allow all API routes (they enforce auth themselves)
     if (pathname.startsWith('/api')) {
         return NextResponse.next();
     }
@@ -25,7 +32,54 @@ export function middleware(request: NextRequest) {
         return new NextResponse(null, { status: 204 });
     }
 
-    return NextResponse.next();
+    // Without Supabase configured, behave exactly like the prototype.
+    if (!supabaseConfigured) {
+        return NextResponse.next();
+    }
+
+    // Refresh the Supabase session cookie on page loads.
+    let response = NextResponse.next({ request });
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+        cookies: {
+            getAll() {
+                return request.cookies.getAll();
+            },
+            setAll(cookiesToSet: CookieToSet[]) {
+                cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+                response = NextResponse.next({ request });
+                cookiesToSet.forEach(({ name, value, options }) =>
+                    response.cookies.set(name, value, options)
+                );
+            }
+        }
+    });
+
+    const {
+        data: { user }
+    } = await supabase.auth.getUser();
+
+    // Gate the agent portal by role once Supabase is live.
+    if (pathname.startsWith('/agent') && pathname !== '/agent/login') {
+        if (!user) {
+            const loginUrl = request.nextUrl.clone();
+            loginUrl.pathname = '/agent/login';
+            loginUrl.search = '';
+            return NextResponse.redirect(loginUrl);
+        }
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+        if (profile?.role !== 'agent' && profile?.role !== 'admin') {
+            const loginUrl = request.nextUrl.clone();
+            loginUrl.pathname = '/agent/login';
+            loginUrl.search = '?denied=1';
+            return NextResponse.redirect(loginUrl);
+        }
+    }
+
+    return response;
 }
 
 export const config = {

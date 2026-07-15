@@ -1,5 +1,7 @@
 import "./globals.css";
 
+const googleAnalyticsId = "G-K0ZSN5QT8S";
+
 export const metadata = {
   metadataBase: new URL("https://seller.housingpa.com"),
   title: {
@@ -32,6 +34,17 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <script async src={`https://www.googletagmanager.com/gtag/js?id=${googleAnalyticsId}`} />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${googleAnalyticsId}');`,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

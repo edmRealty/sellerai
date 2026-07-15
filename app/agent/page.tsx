@@ -42,7 +42,7 @@ type AgentListing = {
   id: string;
   address: string;
   data: ListingRecord;
-  source: "current" | "history";
+  source: "current" | "history" | "server";
   updatedAt: number;
 };
 
@@ -169,8 +169,34 @@ export default function AgentApprovalsPage() {
   const [selectedId, setSelectedId] = useState("");
   const [session, setSession] = useState<any>(null);
   const [note, setNote] = useState("");
+  const [serverMode, setServerMode] = useState(false);
 
-  const load = () => {
+  // Server-backed portal: list every assigned listing from Supabase.
+  // Falls back to the browser-local prototype when Supabase is not
+  // configured or the agent is not authenticated.
+  const loadFromServer = async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/agent/listings");
+      if (!res.ok) return false;
+      const payload = await res.json();
+      if (!payload?.configured || !Array.isArray(payload.listings)) return false;
+      const next: AgentListing[] = payload.listings.map((row: any) => ({
+        id: String(row.id),
+        address: row.address || row.data?.address || "Unknown address",
+        data: (row.data ?? {}) as ListingRecord,
+        source: "server" as const,
+        updatedAt: row.updated_at ? Date.parse(row.updated_at) : 0
+      }));
+      setListings(next);
+      setServerMode(true);
+      setSelectedId((currentId) => (next.some((l) => l.id === currentId) ? currentId : next[0]?.id || ""));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const loadFromLocal = () => {
     const current = readJson<ListingRecord>(LISTING_KEY);
     const sessionData = readJson<any>(SESSION_KEY);
     const history = readJson<HistoryItem[]>(HISTORY_KEY) ?? [];
@@ -204,8 +230,16 @@ export default function AgentApprovalsPage() {
     setSelectedId((currentId) => currentId || next[0]?.id || "");
   };
 
+  const load = async () => {
+    const usedServer = await loadFromServer();
+    if (!usedServer) loadFromLocal();
+  };
+
   useEffect(() => {
     load();
+    const interval = window.setInterval(load, 8000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = listings.find((item) => item.id === selectedId) ?? listings[0] ?? null;
@@ -245,7 +279,33 @@ export default function AgentApprovalsPage() {
     }
   };
 
-  const approveDoc = (doc: AgentDoc) => {
+  const approveDoc = async (doc: AgentDoc) => {
+    // Server transaction: updates the listing and writes an audit event
+    // traceable to this agent. The seller app releases via its polling.
+    if (serverMode && selected && (doc.action === "approve-cn" || doc.action === "approve-listing")) {
+      try {
+        const res = await fetch(`/api/agent/listings/${selected.id}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: doc.action })
+        });
+        const payload = await res.json();
+        if (res.ok && payload?.ok) {
+          setNote(
+            doc.action === "approve-cn"
+              ? "Consumer Notice confirmed. The seller app can now continue."
+              : "Listing Agreement marked signed for this address."
+          );
+          await loadFromServer();
+        } else {
+          setNote(`Approval failed: ${payload?.error ?? res.status}`);
+        }
+      } catch {
+        setNote("Approval failed: network error.");
+      }
+      return;
+    }
+
     if (doc.action === "approve-cn") {
       updateSelectedListing(
         (listing) => ({
@@ -281,6 +341,9 @@ export default function AgentApprovalsPage() {
             <p style={{ margin: 0, color: "#b45309", fontSize: 12, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase" }}>SellerAI</p>
             <h1 style={{ margin: "6px 0 0", fontSize: 34, letterSpacing: "-0.04em" }}>Agent document dashboard</h1>
             <p style={{ margin: "6px 0 0", color: "#64748b" }}>Each address becomes a listing file. Review eSign checkpoints and future document requirements by property.</p>
+            <p style={{ margin: "6px 0 0", fontSize: 12, fontWeight: 700, color: serverMode ? "#166534" : "#b45309" }}>
+              {serverMode ? "Server mode: live listings with audit logging" : "Local prototype mode: browser data only"}
+            </p>
           </div>
           <button onClick={() => router.push("/")} style={buttonStyle("ghost")}>Back to seller app</button>
         </header>

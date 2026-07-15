@@ -4,6 +4,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Flashlight } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import {
+  isServerAuthAvailable,
+  pullServerPaperworkIntoLocal,
+  scheduleListingSync,
+  sendAuthOtp,
+  verifyAuthOtp
+} from "@/lib/listing-sync";
 
 const APP_VERSION = "v41";
 const VALUATION_CACHE_VERSION = "v41";
@@ -414,6 +421,174 @@ const WORKFLOW_PROGRESS: Record<ChatStep, { label: string; percent: number }> = 
   dashboard: { label: "Ready", percent: 100 }
 };
 
+const GAME_MILESTONES: { step: ChatStep; title: string; points: number }[] = [
+  { step: "intro", title: "Started", points: 50 },
+  { step: "confirm", title: "Address checked", points: 75 },
+  { step: "details", title: "Details verified", points: 90 },
+  { step: "features", title: "Features added", points: 90 },
+  { step: "valuation", title: "Price reviewed", points: 120 },
+  { step: "acknowledgements", title: "Seller info ready", points: 100 },
+  { step: "final-price", title: "Launch price chosen", points: 120 },
+  { step: "activation", title: "Email verified", points: 90 },
+  { step: "consumer-notice", title: "Notice started", points: 85 },
+  { step: "listing-intro", title: "Agreement started", points: 90 },
+  { step: "marketing-intro", title: "Marketing ready", points: 90 },
+  { step: "dashboard", title: "Listing command center", points: 100 }
+];
+
+const GAME_STEP_ORDER: ChatStep[] = [
+  "intro",
+  "confirm",
+  "details",
+  "features",
+  "valuation",
+  "addons",
+  "acknowledgements",
+  "final-price",
+  "activation",
+  "ownership",
+  "consumer-notice",
+  "consumer-wait",
+  "listing-intro",
+  "listing-details",
+  "dual-agency",
+  "lead-paint",
+  "listing-wait",
+  "marketing-intro",
+  "photos",
+  "description",
+  "dashboard"
+];
+
+const GAME_HELPERS = [
+  {
+    id: "price",
+    name: "Price Review",
+    role: "Pricing inputs",
+    initials: "PR",
+    hint: "Add known facts before any price review.",
+    body:
+      "Add what you know about condition, updates, room count, and property strengths. These details help organize pricing inputs for a property-specific review; they are not a final valuation."
+  },
+  {
+    id: "paperwork",
+    name: "Paperwork",
+    role: "Compliance steps",
+    initials: "PW",
+    hint: "Complete each required step once.",
+    body:
+      "Acknowledgements, notices, and signing checkpoints keep the seller file organized before marketing or listing work moves forward."
+  },
+  {
+    id: "launch",
+    name: "Launch Prep",
+    role: "Marketing inputs",
+    initials: "LP",
+    hint: "Photos and notes improve review quality.",
+    body:
+      "Photos, access notes, updates, and condition details help explain the property story when the listing is reviewed and prepared."
+  }
+];
+
+const SELLER_GUIDANCE_MVP_ENABLED = true;
+
+const STEP_GUIDANCE: Partial<Record<ChatStep, { next: string; why: string }>> = {
+  intro: {
+    next: "Start with the property address so SellerAI can organize the file around the correct property.",
+    why: "The address anchors the later review: property details, pricing inputs, disclosures, and marketing preparation."
+  },
+  confirm: {
+    next: "Confirm the address and basic property facts before continuing.",
+    why: "Accurate basics reduce rework and make the pricing and disclosure steps easier to review."
+  },
+  details: {
+    next: "Review the measurable details: beds, baths, square footage, year built, and condition.",
+    why: "These facts help separate known property information from assumptions before a seller review."
+  },
+  features: {
+    next: "Add features, updates, and condition notes that may not appear in public records.",
+    why: "More complete details can support a stronger next-step plan without making value promises."
+  },
+  valuation: {
+    next: "Treat the estimate as a working input, then review details or continue to the next step.",
+    why: "This is not a valuation or guaranteed sale price. A property-specific review is still required."
+  },
+  acknowledgements: {
+    next: "Confirm seller contact details and required acknowledgements.",
+    why: "This keeps the seller file organized before the listing paperwork step."
+  },
+  "final-price": {
+    next: "Enter the intended launch-price direction for document preparation.",
+    why: "A clear input helps prepare the next step while still leaving room for broker review."
+  },
+  activation: {
+    next: "Verify the seller email so the dashboard and document workflow can continue.",
+    why: "Email verification helps keep the seller file tied to the right contact."
+  },
+  "consumer-notice": {
+    next: "Start the Consumer Notice workflow and wait for the required review/signing step.",
+    why: "This required Pennsylvania disclosure step should stay separate from the listing agreement itself."
+  },
+  "listing-intro": {
+    next: "Review the listing agreement path before entering detailed listing terms.",
+    why: "This helps clarify the broker-supported process before moving toward signature."
+  },
+  "marketing-intro": {
+    next: "Prepare the marketing inputs that make the listing easier to review and prepare.",
+    why: "Photos, access notes, and description quality matter once the paperwork path is ready."
+  },
+  dashboard: {
+    next: "Use the dashboard to track the next operational task.",
+    why: "The dashboard keeps next steps organized after the setup flow is complete."
+  }
+};
+
+const getGameProgress = (step: ChatStep) => {
+  const stepIndex = Math.max(0, GAME_STEP_ORDER.indexOf(step));
+  const earnedMilestones = GAME_MILESTONES.filter((milestone) => {
+    const milestoneIndex = GAME_STEP_ORDER.indexOf(milestone.step);
+    return milestoneIndex !== -1 && milestoneIndex <= stepIndex;
+  });
+  const totalPoints = GAME_MILESTONES.reduce((sum, milestone) => sum + milestone.points, 0);
+  const earnedPoints = earnedMilestones.reduce((sum, milestone) => sum + milestone.points, 0);
+  const nextMilestone =
+    GAME_MILESTONES.find((milestone) => {
+      const milestoneIndex = GAME_STEP_ORDER.indexOf(milestone.step);
+      return milestoneIndex > stepIndex;
+    }) || null;
+
+  return {
+    earnedMilestones,
+    earnedPoints,
+    nextMilestone,
+    totalPoints
+  };
+};
+
+const getStepGuidance = (step: ChatStep, workflowProgress: { label: string; percent: number }) =>
+  STEP_GUIDANCE[step] || {
+    next: `Continue the ${workflowProgress.label.toLowerCase()} step when the information is accurate.`,
+    why: "Each completed step reduces uncertainty and improves the quality of the next review."
+  };
+
+const getReadinessLabel = (score: number) => {
+  if (score >= 90) return "Strong seller-readiness profile";
+  if (score >= 75) return "Review ready";
+  if (score >= 50) return "Good progress";
+  if (score >= 25) return "Needs key details";
+  return "Getting started";
+};
+
+const getReadinessExplanation = (score: number, nextMilestone: { title: string } | null) => {
+  if (score >= 90) {
+    return "This reflects a mostly complete seller-readiness profile. A property-specific review is still required before pricing or listing decisions.";
+  }
+  if (nextMilestone) {
+    return `This reflects profile completeness, not home value. Complete "${nextMilestone.title}" to improve review quality.`;
+  }
+  return "This score reflects profile completeness. It is not a home valuation or pricing recommendation.";
+};
+
 function TypewriterText({
   text,
   onDone
@@ -470,6 +645,7 @@ export default function Home() {
   const [activationInput, setActivationInput] = useState("");
   const [emailVerified, setEmailVerified] = useState(false);
   const [activationMocked, setActivationMocked] = useState(false);
+  const [supabaseOtpActive, setSupabaseOtpActive] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState("");
   const [reportEmail, setReportEmail] = useState("");
@@ -510,6 +686,7 @@ export default function Home() {
   const lastPromptSnapshotRef = useRef<{ step: ChatStep; prompt: string } | null>(null);
   const autocompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autocompleteAbortRef = useRef<AbortController | null>(null);
+  const hasSkippedInitialSessionSaveRef = useRef(false);
   const helpMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -630,6 +807,10 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!hasSkippedInitialSessionSaveRef.current) {
+      hasSkippedInitialSessionSaveRef.current = true;
+      return;
+    }
     localStorage.setItem(SESSION_KEY, JSON.stringify({
       data,
       messages,
@@ -638,7 +819,21 @@ export default function Home() {
       addressInput
     }));
     localStorage.setItem(LISTING_KEY, JSON.stringify(data));
+    // Server persistence (no-op until Supabase is configured and the seller
+    // has verified their email; localStorage stays the offline/UI cache).
+    scheduleListingSync(step, data);
   }, [data, messages, view, step, addressInput]);
+
+  // While waiting on the agent, also pull released statuses from the server
+  // so approvals reach the seller across devices without a refresh. The
+  // merge writes into localStorage, which the existing 2s polls pick up.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (step !== "consumer-wait" && step !== "listing-wait") return;
+    pullServerPaperworkIntoLocal();
+    const interval = window.setInterval(pullServerPaperworkIntoLocal, 4000);
+    return () => window.clearInterval(interval);
+  }, [step]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1227,7 +1422,7 @@ export default function Home() {
       setLastValuationAt(Date.now());
       setValuationLog((prev) => [
         ...prev,
-        "Finalizing the market value range and summary…"
+        "Finalizing the working pricing range and summary…"
       ]);
     } catch {
       setFeedback("Valuation failed. Please retry.");
@@ -1445,6 +1640,25 @@ export default function Home() {
     }
     setLoading(true);
     setFeedback("Sending activation code...");
+
+    // Prefer Supabase email OTP when configured: same seller experience,
+    // but verification creates a real authenticated session.
+    if (isServerAuthAvailable()) {
+      const otp = await sendAuthOtp(data.seller.email);
+      if (otp.sent) {
+        setSupabaseOtpActive(true);
+        setActivationCode(null);
+        setActivationLink(null);
+        setActivationMocked(false);
+        setActivationInput("");
+        setFeedback("Activation code sent.");
+        addMessage("assistant", `Activation code sent to ${data.seller.email}.`);
+        setLoading(false);
+        return;
+      }
+      setSupabaseOtpActive(false);
+    }
+
     try {
       const res = await fetch("/api/send-email", {
         method: "POST",
@@ -1483,7 +1697,24 @@ export default function Home() {
     }
   };
 
-  const verifyActivationCode = () => {
+  const verifyActivationCode = async () => {
+    if (supabaseOtpActive) {
+      if (!activationInput.trim()) {
+        setFeedback("Enter the code from your email.");
+        return;
+      }
+      setLoading(true);
+      const result = await verifyAuthOtp(data.seller.email, activationInput);
+      setLoading(false);
+      if (!result.verified) {
+        setFeedback("That code doesn’t match. Please try again.");
+        return;
+      }
+      setEmailVerified(true);
+      setFeedback("Email verified.");
+      handleActivationContinue();
+      return;
+    }
     if (!activationCode) {
       setFeedback("Send the activation code first.");
       return;
@@ -2097,9 +2328,9 @@ export default function Home() {
     const rangeLow = data.valuation.rangeLow ?? data.valuation.average ?? 0;
     const rangeHigh = data.valuation.rangeHigh ?? data.valuation.average ?? 0;
     const lines: string[] = [
-      "AI valuation & comps",
+      "Pricing input & comps",
       `Estimated range: ${formatCurrency(rangeLow)} – ${formatCurrency(rangeHigh)}`,
-      `Suggested market value: ${formatCurrency(data.valuation.average)}`
+      `Suggested pricing input: ${formatCurrency(data.valuation.average)}`
     ];
 
     if (data.valuation.comps && data.valuation.comps.length > 0) {
@@ -2172,7 +2403,7 @@ export default function Home() {
   function getStepRepeatPrompt(currentStep: ChatStep) {
     switch (currentStep) {
       case "intro":
-        return "Start when you’re ready.";
+        return "Start the seller-readiness review when you are ready.";
       case "valuation":
         if (valuationStage === "custom") {
           return "What price did you have in mind? Enter it below.";
@@ -2347,11 +2578,11 @@ export default function Home() {
       "Reviewing price reductions and days-on-market trends…",
       "Normalizing for upgrades and unique features…",
       "Cross-checking public records and tax data…",
-      "Balancing buyer demand against current inventory…"
+      "Reviewing local inventory and listing context…"
     ];
 
     if (details.condition === "new" || details.condition === "great") {
-      lines.push("Condition rating looks strong — that can lift the pricing band.");
+      lines.push("Condition rating looks strong and should be reviewed in the pricing context.");
     } else if (details.condition === "fixer" || details.condition === "rehab") {
       lines.push("Accounting for needed repairs and renovation costs.");
     }
@@ -2735,7 +2966,7 @@ export default function Home() {
                   onClick={() =>
                     pushInfoPrompt(
                       "Why do features matter?",
-                      "Features influence buyer demand and help us compare your property to the right comps."
+                      "Features help explain the property story and support better comp review."
                     )
                   }
                 >
@@ -2766,31 +2997,31 @@ export default function Home() {
         return (
           <div className="message assistant">
             <div className="card-bubble">
-              <h3>AI valuation & comps</h3>
+              <h3>Pricing input & comps</h3>
               <p className="step-intro">
-                Next, let’s estimate market value by analyzing comps, buyer demand, and the property details we just confirmed.
+                Next, let’s organize a working pricing input using comps, local market context, and the property details we just confirmed.
               </p>
               <div className="step-explainer">
-                This is only an estimate. We will finalize the Listing Price later with the licensed agent; for now, this amount helps us prepare the Listing Agreement and keep the file moving.
+                This is not a final valuation or sale-price recommendation. It helps prepare the next review step with the licensed agent.
               </div>
 
               {valuationStage === "idle" && (
                 <>
                   <div className="quick-actions">
                     <button type="button" className="btn btn-primary" onClick={handleValuationStart} disabled={loading}>
-                      {loading ? "Analyzing..." : "Let’s go"}
+                      {loading ? "Reviewing..." : "Review pricing input"}
                     </button>
                     <button
                       type="button"
                       className="btn btn-ghost"
                       onClick={() =>
                         pushInfoPrompt(
-                          "What’s the difference between market value and listing price?",
-                          "Market value is what the data suggests buyers will pay. Listing price is your strategy — we can price at, above, or below market depending on goals."
+                          "How should I use this pricing input?",
+                          "Use it as a working input for review. The final listing strategy should still be confirmed with property-specific context and broker guidance."
                         )
                       }
                     >
-                      Market value vs listing price
+                      How to use this
                     </button>
                     <button type="button" className="btn btn-ghost" onClick={skipValuationToFinalPrice}>
                       I already know my price
@@ -2816,7 +3047,7 @@ export default function Home() {
                     ))}
                   </div>
                   <div className="thinking-row">
-                    <span>SellerAI is thinking hard</span>
+                    <span>SellerAI is reviewing the inputs</span>
                     <span className="thinking-dots">
                       <span className="thinking-dot" />
                       <span className="thinking-dot" />
@@ -2842,27 +3073,27 @@ export default function Home() {
                 <>
                   <div className="valuation-result">
                     <div className="valuation-result-title">
-                      We estimate the value of {data.address || "this property"} as:
+                      Working pricing input for {data.address || "this property"}:
                     </div>
                     <div className="valuation-range">
                       {formatCurrency(rangeLow)} – {formatCurrency(rangeHigh)}
                     </div>
                     <div className="valuation-suggested">
-                      Suggested Market Value: {formatCurrency(data.valuation.average)}
+                      Suggested Pricing Input: {formatCurrency(data.valuation.average)}
                     </div>
                   </div>
                   <div className="step-explainer">
-                    Treat this as the working estimate, not a final list price. We’ll use it for the Listing Agreement draft and refine the actual market launch price later.
+                    Treat this as a working input, not a final valuation or final list price. It can support the Listing Agreement draft and later review.
                   </div>
                   <div className="quick-actions">
                     <button type="button" className="btn btn-primary" onClick={handleValuationAccept}>
-                      Yes! That sounds right
+                      Use this as working input
                     </button>
                     <button type="button" className="btn btn-ghost" onClick={handleValuationDetails}>
                       Show me the details
                     </button>
                     <button type="button" className="btn btn-ghost" onClick={handleValuationCustom}>
-                      This is not the right price, I will set myself
+                      I want to enter my own price
                     </button>
                   </div>
                 </>
@@ -2874,7 +3105,7 @@ export default function Home() {
                     {data.valuation.report ? (
                       <div dangerouslySetInnerHTML={{ __html: data.valuation.report }} />
                     ) : (
-                      "Here’s the breakdown we used to estimate market value."
+                      "Here’s the breakdown behind the working pricing input."
                     )}
                   </div>
                   {data.valuation.comps && data.valuation.comps.length > 0 && (
@@ -3440,7 +3671,7 @@ export default function Home() {
             <div className="card-bubble">
               <h3>Paperwork kickoff</h3>
               <p className="step-intro">
-                Now that we have a rough idea of market value, it’s time to approve paperwork sent by eSign.
+                Now that we have a working pricing input, it’s time to approve paperwork sent by eSign.
               </p>
               <div className="step-explainer">
                 The goal is to keep this feeling simple while still doing the licensed-agent and compliance work correctly behind the scenes.
@@ -4040,9 +4271,18 @@ export default function Home() {
   };
 
   const workflowProgress = WORKFLOW_PROGRESS[step] || WORKFLOW_PROGRESS.confirm;
+  const gameProgress = getGameProgress(step);
+  const recentMilestones = gameProgress.earnedMilestones.slice(-3);
+  const stepGuidance = getStepGuidance(step, workflowProgress);
+  const readinessScore = Math.round((gameProgress.earnedPoints / gameProgress.totalPoints) * 100);
+  const readinessLabel = getReadinessLabel(readinessScore);
+  const readinessExplanation = getReadinessExplanation(readinessScore, gameProgress.nextMilestone);
   const openHelpTopic = (title: string, body: React.ReactNode) => {
     setHelpTopic({ title, body });
     setHelpMenuOpen(false);
+  };
+  const openGameHelper = (helper: (typeof GAME_HELPERS)[number]) => {
+    openHelpTopic(`${helper.name} - ${helper.role}`, helper.body);
   };
 
   return (
@@ -4063,12 +4303,12 @@ export default function Home() {
                 ×
               </button>
             </div>
-            <button type="button" onClick={() => openHelpTopic("How does this work?", "SellerAI helps you move through valuation, disclosures, eSign checkpoints, and listing preparation while a licensed broker remains involved. You handle a few simple on-site tasks, and we keep the process organized.")}>How does this work?</button>
+            <button type="button" onClick={() => openHelpTopic("How does this work?", "SellerAI helps organize property information, disclosures, eSign checkpoints, and listing preparation while a licensed broker remains involved. You handle the seller-side inputs, and the workflow keeps each next step clear.")}>How does this work?</button>
             <button type="button" onClick={() => openHelpTopic("Is it really only 1%?", "Yes. The SellerAI path is designed around a total broker fee of only 1% for this listing workflow, while still keeping broker representation and required compliance steps in place.")}>Is it really only 1%?</button>
-            <button type="button" onClick={() => openHelpTopic("About us", "SellerAI is part of housingPA. The goal is to combine licensed brokerage support with AI-assisted workflow so sellers can move faster and save money.")}>About us</button>
+            <button type="button" onClick={() => openHelpTopic("About us", "SellerAI is part of housingPA. The goal is to combine licensed brokerage support with an AI-assisted workflow that keeps seller preparation organized and easier to review.")}>About us</button>
             <button type="button" onClick={() => openHelpTopic("Contact us", "Support: ben@housingpa.com")}>Contact us</button>
             <button type="button" onClick={handleNewListing}>Back to homepage</button>
-            <button type="button" onClick={() => openHelpTopic("AI Valuator", "The AI Valuator creates a working estimate from property details, comparable sales, market context, and the information you provide. It is not the final launch price.")}>AI Valuator</button>
+            <button type="button" onClick={() => openHelpTopic("AI Valuator", "The AI Valuator creates a working pricing input from property details, comparable sales, market context, and the information you provide. It is not a final valuation, sale-price promise, or listing recommendation.")}>AI Valuator</button>
             <button type="button" onClick={() => openHelpTopic("Offer", "Offer tools will be added here later for buyer activity, offer review, and negotiation support.")}>Offer</button>
             <a href="https://housingpa.com/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
             <a href="https://housingpa.com/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
@@ -4107,6 +4347,41 @@ export default function Home() {
         <div className="sidebar-section">
           <div className="sidebar-label">Current listing</div>
           <div className="sidebar-card">{data.address || "No active address"}</div>
+        </div>
+        <div className="sidebar-section seller-score-card" aria-label="Seller score">
+          <div className="seller-score-top">
+            <div>
+              <div className="sidebar-label">Readiness score</div>
+              <strong>{readinessScore}</strong>
+            </div>
+            <span>{readinessLabel}</span>
+          </div>
+          <div className="seller-score-track">
+            <div
+              className="seller-score-bar"
+              style={{ width: `${readinessScore}%` }}
+            />
+          </div>
+          <div className="seller-score-next">
+            {gameProgress.nextMilestone
+              ? `Next: ${gameProgress.nextMilestone.title}`
+              : "All milestones complete"}
+          </div>
+          <p className="seller-score-explain">{readinessExplanation}</p>
+          <div className="seller-helper-row">
+            {GAME_HELPERS.map((helper) => (
+              <button
+                key={helper.id}
+                type="button"
+                className="seller-helper-chip"
+                onClick={() => openGameHelper(helper)}
+                title={`${helper.name}: ${helper.role}`}
+                aria-label={`${helper.name}, ${helper.role}`}
+              >
+                {helper.initials}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="sidebar-section">
           <div className="sidebar-label">Listing history</div>
@@ -4174,7 +4449,7 @@ export default function Home() {
         <div className="main-inner">
           {view === "landing" && (
             <section className="hero">
-              <h1>What are we Selling?</h1>
+              <h1>Start Your Seller Readiness Review</h1>
               <form
                 className="search-form"
                 onSubmit={(e) => {
@@ -4190,14 +4465,17 @@ export default function Home() {
                       setAddressInput(e.target.value);
                       setPlaceTypes([]);
                     }}
-                    placeholder="Enter property address (e.g., 11907 Bustleton Ave)"
+                    placeholder="Enter the property address"
                     autoComplete="off"
                     spellCheck={false}
                   />
                   <button className="btn btn-primary search-submit" type="submit" disabled={loading}>
-                    {loading ? "Searching..." : "Let's go"}
+                    {loading ? "Searching..." : "Start review"}
                   </button>
                 </div>
+                <p className="hero-start-note">
+                  Start with an address. SellerAI organizes seller-readiness facts for review; it is not a final valuation.
+                </p>
                 {addressSuggestions.length > 0 && (
                   <div className="autocomplete-list">
                     {addressSuggestions.map((item) => (
@@ -4216,9 +4494,35 @@ export default function Home() {
                 {mapsError && <p className="summary-text">{mapsError}</p>}
                 {feedback && <p className="summary-text">{feedback}</p>}
               </form>
+              <div className="landing-game-panel" aria-label="SellerAI readiness progress preview">
+                <div className="landing-game-score">
+                  <span>Readiness Score</span>
+                  <strong>0</strong>
+                </div>
+                <div className="landing-game-path">
+                  <span className="landing-game-bubble active">Start</span>
+                  <span className="landing-game-bubble">Address</span>
+                  <span className="landing-game-bubble">Pricing Inputs</span>
+                  <span className="landing-game-bubble">Next-Step Plan</span>
+                </div>
+                <div className="landing-helper-row">
+                  {GAME_HELPERS.map((helper) => (
+                    <button
+                      key={helper.id}
+                      type="button"
+                      className="landing-helper"
+                      onClick={() => openGameHelper(helper)}
+                      aria-label={`${helper.name}, ${helper.role}`}
+                    >
+                      <span>{helper.initials}</span>
+                      <small>{helper.role}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <p className="hero-note">
-                Your AI listing agent. We pull quick property details, build pricing guidance, and guide every step from
-                prep to closing.
+                An AI-assisted listing workflow for organizing property details, pricing inputs, paperwork, and next
+                steps before a seller review.
               </p>
             </section>
           )}
@@ -4246,6 +4550,56 @@ export default function Home() {
                   />
                 </div>
               </div>
+              <div className="game-progress-strip" aria-label="SellerAI readiness milestones">
+                <div className="game-progress-score">
+                  <span>Readiness Score</span>
+                  <strong>{readinessScore}</strong>
+                  <small>{readinessLabel}</small>
+                </div>
+                <div className="game-milestone-bubbles">
+                  {recentMilestones.map((milestone) => (
+                    <span key={milestone.step} className="game-milestone-bubble">
+                      {milestone.title}
+                    </span>
+                  ))}
+                  {gameProgress.nextMilestone && (
+                    <span className="game-milestone-bubble next">
+                      Next: {gameProgress.nextMilestone.title}
+                    </span>
+                  )}
+                </div>
+                <div className="game-helper-bubbles">
+                  {GAME_HELPERS.map((helper) => (
+                    <button
+                      key={helper.id}
+                      type="button"
+                      className="game-helper-bubble"
+                      onClick={() => openGameHelper(helper)}
+                      aria-label={`${helper.name}, ${helper.role}`}
+                    >
+                      <span>{helper.initials}</span>
+                      <small>{helper.hint}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {SELLER_GUIDANCE_MVP_ENABLED && (
+                <p className="game-progress-note">
+                  This score reflects how complete your seller-readiness profile is. It is not a home valuation or pricing recommendation.
+                </p>
+              )}
+              {SELLER_GUIDANCE_MVP_ENABLED && (
+                <div className="seller-guidance-panel" aria-label="SellerAI next best step">
+                  <div>
+                    <span className="seller-guidance-kicker">Next best step</span>
+                    <p>{stepGuidance.next}</p>
+                  </div>
+                  <div>
+                    <span className="seller-guidance-kicker">Why this matters</span>
+                    <p>{stepGuidance.why}</p>
+                  </div>
+                </div>
+              )}
               {feedback && <p className="summary-text chat-feedback">{feedback}</p>}
 
               <div className="chat-container">
