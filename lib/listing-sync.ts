@@ -36,6 +36,28 @@ export async function hasActiveSession(): Promise<boolean> {
     return Boolean(data?.session);
 }
 
+/** Best-effort photo backup after the existing browser preview is created. */
+export async function uploadListingPhoto(file: File): Promise<{ uploaded: boolean; error?: string }> {
+    if (typeof window === "undefined" || !isServerAuthAvailable()) return { uploaded: false, error: "not_configured" };
+    if (!(await hasActiveSession())) return { uploaded: false, error: "unauthenticated" };
+    const listingId = getStoredListingId();
+    if (!listingId) return { uploaded: false, error: "listing_missing" };
+
+    try {
+        const form = new FormData();
+        form.append("listingId", listingId);
+        form.append("file", file);
+        const response = await fetch("/api/listings/photos", { method: "POST", body: form });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            return { uploaded: false, error: payload?.error || `http_${response.status}` };
+        }
+        return { uploaded: true };
+    } catch {
+        return { uploaded: false, error: "network_error" };
+    }
+}
+
 const getStoredListingId = (): string | null => {
     try {
         return window.localStorage.getItem(LISTING_SERVER_ID_KEY);

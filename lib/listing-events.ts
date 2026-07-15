@@ -9,7 +9,10 @@ export type ListingEventType =
     | 'la_status_changed'
     | 'cn_approved'
     | 'la_approved'
-    | 'status_changed';
+    | 'status_changed'
+    | 'email_failed'
+    | 'photo_uploaded'
+    | 'photo_removed';
 
 /**
  * Append an audit event. Best-effort: persistence failures are logged but

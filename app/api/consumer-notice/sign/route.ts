@@ -239,6 +239,17 @@ export async function POST(req: Request) {
     }
 
     const signedPdf = await pdfDoc.save();
+    const signedFileName = "Consumer-Notice-Signed.pdf";
+
+    // A signed disclosure is the source of truth. Save it before attempting
+    // notifications so a mail-provider outage cannot undo the signature.
+    await persistConsumerNoticeSignature({
+      listingId,
+      name,
+      email,
+      fileName: signedFileName,
+      pdfBytes: signedPdf
+    });
 
     const smtpHost = process.env.SMTP_HOST || "";
     const smtpUser = process.env.SMTP_USER || "";
@@ -247,15 +258,6 @@ export async function POST(req: Request) {
     const smtpSecure = smtpPort === 465;
     const resendKey = process.env.RESEND_API_KEY || "";
     const resendFrom = process.env.RESEND_FROM_EMAIL || "";
-
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      if (!resendKey || !resendFrom) {
-        return NextResponse.json(
-          { success: false, error: "SMTP not configured for signed notice delivery." },
-          { status: 500 }
-        );
-      }
-    }
 
     const adminEmail =
       process.env.ADMIN_EMAIL ||
@@ -276,61 +278,44 @@ export async function POST(req: Request) {
         </div>
       `;
 
-    const signedFileName = "Consumer-Notice-Signed.pdf";
-    if (resendKey && resendFrom) {
-      const resendResponse = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: resendFrom,
-          to: recipients.split(",").filter(Boolean),
-          subject: emailSubject,
-          html: emailHtml,
-          attachments: [
-            {
-              filename: signedFileName,
-              content: Buffer.from(signedPdf).toString("base64")
-            }
-          ]
-        })
-      });
-      if (!resendResponse.ok) {
-        const resendError = await resendResponse.text();
-        throw new Error(`Resend failed: ${resendError}`);
+    let emailDelivered = true;
+    let emailError = "";
+    try {
+      if (resendKey && resendFrom) {
+        const resendResponse = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: resendFrom,
+            to: recipients.split(",").filter(Boolean),
+            subject: emailSubject,
+            html: emailHtml,
+            attachments: [{ filename: signedFileName, content: Buffer.from(signedPdf).toString("base64") }]
+          })
+        });
+        if (!resendResponse.ok) throw new Error(`Resend failed: ${await resendResponse.text()}`);
+      } else if (smtpHost && smtpUser && smtpPass) {
+        const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
+        await transporter.sendMail({ from: smtpUser, to: recipients, subject: emailSubject, html: emailHtml, attachments: [{ filename: signedFileName, content: Buffer.from(signedPdf) }] });
+      } else {
+        throw new Error("No email delivery provider is configured.");
       }
-    } else {
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpSecure,
-        auth: { user: smtpUser, pass: smtpPass }
-      });
-      await transporter.sendMail({
-        from: smtpUser,
-        to: recipients,
-        subject: emailSubject,
-        html: emailHtml,
-        attachments: [
-          {
-            filename: signedFileName,
-            content: Buffer.from(signedPdf)
-          }
-        ]
-      });
+    } catch (error: any) {
+      emailDelivered = false;
+      emailError = String(error?.message || "Email delivery failed.").slice(0, 300);
+      console.warn("Signed Consumer Notice email delivery failed:", emailError);
+      if (listingId) {
+        const { error: eventError } = await supabaseAdmin.from("listing_events").insert({
+          listing_id: listingId,
+          actor_role: "system",
+          event_type: "email_failed",
+          payload: { recipient: "seller_and_admin", error: emailError, context: "consumer_notice_signed" }
+        });
+        if (eventError) console.warn("Consumer Notice email failure event insert failed:", eventError.message);
+      }
     }
 
-    await persistConsumerNoticeSignature({
-      listingId,
-      name,
-      email,
-      fileName: signedFileName,
-      pdfBytes: signedPdf
-    });
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, signed: true, emailDelivered, ...(emailDelivered ? {} : { warning: emailError }) });
   } catch (error: any) {
     console.error("Consumer Notice Sign Error:", error);
     return NextResponse.json(

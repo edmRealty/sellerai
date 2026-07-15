@@ -9,6 +9,7 @@ import {
   pullServerPaperworkIntoLocal,
   scheduleListingSync,
   sendAuthOtp,
+  uploadListingPhoto,
   verifyAuthOtp
 } from "@/lib/listing-sync";
 
@@ -2121,9 +2122,10 @@ export default function Home() {
       }
       setStep("consumer-wait");
       setFeedback(null);
-    } catch {
-      setFeedback("Could not send notice. Please retry.");
-      addMessage("assistant", "I couldn’t send the Consumer Notice. Please try again.");
+    } catch (error: any) {
+      const message = String(error?.message || "Could not send notice. Please retry.");
+      setFeedback(message);
+      addMessage("assistant", message);
     } finally {
       setLoading(false);
     }
@@ -3534,8 +3536,9 @@ export default function Home() {
                 type="file"
                 multiple
                 onChange={(e) => {
-                  const files = Array.from(e.target.files || []).map((file) => file.name);
-                  setData((prev) => ({ ...prev, photos: files }));
+                  const files = Array.from(e.target.files || []);
+                  setData((prev) => ({ ...prev, photos: files.map((file) => file.name) }));
+                  void Promise.all(files.map((file) => uploadListingPhoto(file)));
                 }}
               />
               <p className="summary-text">{data.photos.length} files selected</p>

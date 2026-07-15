@@ -72,7 +72,6 @@ In Supabase Auth settings, enable Email OTP ("Email" provider, OTP length
   with versioning.
 - Consumer Notice / Listing Agreement email flows unchanged; Phase 3 ties
   their signed PDFs to `listing_documents` + events.
-- `/api/auth/users`, `data/users.json`, and the admin delete/nuke routes are
-  legacy; replace/remove when the agent portal fully cuts over. Remove the
-  plaintext mock credentials in `data/users.json` before production.
+- Legacy mock credentials have been removed. The remaining admin routes use
+  the Supabase session and administrative role checks.
 - Realtime subscriptions can replace polling in Phase 2+ without API changes.

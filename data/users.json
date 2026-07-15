@@ -1,9 +1,0 @@
-[
-  {
-    "id": "mock-admin-id",
-    "email": "ben@housingpa.com",
-    "password": "admin",
-    "role": "admin",
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-]

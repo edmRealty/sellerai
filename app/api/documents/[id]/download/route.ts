@@ -17,15 +17,16 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
   const { data: document, error } = await ctx.auth.supabase
     .from("listing_documents")
-    .select("id, storage_path")
+    .select("id, kind, storage_path")
     .eq("id", params.id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!document?.storage_path) return NextResponse.json({ error: "document not found" }, { status: 404 });
 
+  const bucket = document.kind === "photo" ? "photos" : "documents";
   const { data: signedUrl, error: signedUrlError } = await supabaseAdmin.storage
-    .from("documents")
+    .from(bucket)
     .createSignedUrl(document.storage_path, 60);
 
   if (signedUrlError || !signedUrl?.signedUrl) {

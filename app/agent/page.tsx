@@ -319,6 +319,7 @@ export default function AgentApprovalsPage() {
   const selected = listings.find((item) => item.id === selectedId) ?? listings[0] ?? null;
   const docs = buildDocs(selected?.data ?? null);
   const signedConsumerNotice = serverDocuments.find((document) => document.kind === "consumer_notice" && document.status === "signed" && document.has_file);
+  const uploadedPhotos = serverDocuments.filter((document) => document.kind === "photo" && document.has_file);
   const pendingCount = listings.reduce((sum, item) => sum + buildDocs(item.data).filter((doc) => doc.status === "requested" || doc.status === "sent" || doc.status === "signed").length, 0);
   const approvedCount = listings.reduce((sum, item) => sum + buildDocs(item.data).filter((doc) => doc.status === "approved").length, 0);
 
@@ -469,9 +470,10 @@ export default function AgentApprovalsPage() {
                   <h2 style={{ margin: 0, fontSize: 22 }}>Documents</h2>
                   <p style={{ margin: "6px 0 0", color: "#64748b" }}>CN starts the file. Listing Agreement, lead paint, Seller Disclosure, and future docs follow.</p>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <span style={pillStyle}>{pendingCount} pending</span>
-                  <span style={{ ...pillStyle, background: "#dcfce7", color: "#166534" }}>{approvedCount} approved</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={pillStyle}>{pendingCount} pending</span>
+                <span style={{ ...pillStyle, background: "#dcfce7", color: "#166534" }}>{approvedCount} approved</span>
+                {serverMode ? <span style={{ ...pillStyle, background: "#e0f2fe", color: "#075985" }}>{uploadedPhotos.length} photo{uploadedPhotos.length === 1 ? "" : "s"}</span> : null}
                 </div>
               </div>
 
@@ -491,6 +493,11 @@ export default function AgentApprovalsPage() {
                   </div>
                 ))}
               </div>
+              {serverMode && uploadedPhotos.length > 0 ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+                  {uploadedPhotos.map((photo) => <a key={photo.id} href={`/api/documents/${photo.id}/download`} target="_blank" rel="noreferrer" style={{ color: "#075985", fontWeight: 800 }}>View {photo.file_name || "listing photo"}</a>)}
+                </div>
+              ) : null}
               {note ? <p style={{ marginTop: 14, color: "#166534", fontWeight: 700 }}>{note}</p> : null}
             </div>
 

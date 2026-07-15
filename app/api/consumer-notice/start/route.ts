@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { signConsumerNoticeToken } from "@/lib/esign";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -60,25 +61,9 @@ export async function POST(req: Request) {
       </div>
     `;
 
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      return NextResponse.json({
-        success: true,
-        signUrl,
-        emailSent: false,
-        warning: "SMTP not configured for consumer notice."
-      });
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      auth: { user: smtpUser, pass: smtpPass }
-    });
-
-    let emailSent = true;
-    let warning = "";
     try {
+      if (!smtpHost || !smtpUser || !smtpPass) throw new Error("SMTP is not configured for Consumer Notice delivery.");
+      const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
       await transporter.sendMail({
         from: smtpUser,
         to: signerEmail,
@@ -101,11 +86,20 @@ export async function POST(req: Request) {
         });
       }
     } catch (err: any) {
-      emailSent = false;
-      warning = err?.message || "Email delivery failed.";
+      const message = String(err?.message || "Email delivery failed.").slice(0, 300);
+      if (listingId) {
+        const { error } = await supabaseAdmin.from("listing_events").insert({
+          listing_id: listingId,
+          actor_role: "system",
+          event_type: "email_failed",
+          payload: { recipient: "seller", error: message, context: "consumer_notice_start" }
+        });
+        if (error) console.warn("Consumer Notice start email failure event insert failed:", error.message);
+      }
+      return NextResponse.json({ success: false, signUrl, emailSent: false, error: message }, { status: 503 });
     }
 
-    return NextResponse.json({ success: true, signUrl, emailSent, warning });
+    return NextResponse.json({ success: true, signUrl, emailSent: true });
   } catch (error: any) {
     console.error("Consumer Notice Start Error:", error);
     return NextResponse.json(
