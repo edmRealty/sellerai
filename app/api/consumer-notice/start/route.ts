@@ -90,7 +90,7 @@ export async function POST(req: Request) {
       if (listingId) {
         const { error } = await supabaseAdmin.from("listing_events").insert({
           listing_id: listingId,
-          actor_role: "system",
+          actor_role: "admin",
           event_type: "email_failed",
           payload: { recipient: "seller", error: message, context: "consumer_notice_start" }
         });

@@ -140,7 +140,9 @@ export async function POST(req: Request) {
 
     const pdfPath = path.join(process.cwd(), "public", "docs", "consumer-notice.pdf");
     const pdfBytes = await fs.readFile(pdfPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    // The approved PA template declares encryption restrictions even though it
+    // is readable. We only annotate a server-controlled local copy.
+    const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     const pages = pdfDoc.getPages();
     const page = pages[0];
     const form = pdfDoc.getForm();
@@ -307,7 +309,7 @@ export async function POST(req: Request) {
       if (listingId) {
         const { error: eventError } = await supabaseAdmin.from("listing_events").insert({
           listing_id: listingId,
-          actor_role: "system",
+          actor_role: "admin",
           event_type: "email_failed",
           payload: { recipient: "seller_and_admin", error: emailError, context: "consumer_notice_signed" }
         });
