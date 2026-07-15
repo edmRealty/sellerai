@@ -7,6 +7,7 @@ export type ConsumerNoticeTokenPayload = {
   name: string;
   email: string;
   address: string;
+  listingId?: string;
   issuedAt: number;
   exp: number;
 };

@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     const signerEmail = String(body?.signerEmail || "").trim();
     const signerName = String(body?.signerName || "Seller").trim();
     const address = String(body?.address || "").trim();
+    const listingId = typeof body?.listingId === "string" ? body.listingId.trim() : undefined;
 
     if (!signerEmail || !address) {
       return NextResponse.json(
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
       name: signerName,
       email: signerEmail,
       address,
+      listingId,
       issuedAt: now,
       exp: now + 7 * 24 * 60 * 60 * 1000
     });

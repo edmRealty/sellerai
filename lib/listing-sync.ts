@@ -54,6 +54,7 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 export function scheduleListingSync(step: string, data: unknown, clientSessionId?: string) {
     if (typeof window === "undefined") return;
     if (!isServerAuthAvailable()) return;
+    if (!data || typeof data !== "object" || !(data as { address?: unknown }).address) return;
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(async () => {
         try {

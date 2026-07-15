@@ -67,6 +67,9 @@ export async function POST(req: Request) {
     }
 
     if (!existing) {
+        if (!promoted.address) {
+            return NextResponse.json({ synced: false, error: 'empty address' }, { status: 400 });
+        }
         const { data: inserted, error } = await supabase
             .from('listings')
             .insert({ ...promoted, seller_id: user.id })

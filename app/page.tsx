@@ -2095,7 +2095,8 @@ export default function Home() {
         body: JSON.stringify({
           signerEmail: data.seller.email,
           signerName: data.seller.name || "Seller",
-          address: data.address
+          address: data.address,
+          listingId: window.localStorage.getItem("seller_ai_listing_server_id") || undefined
         })
       });
       const payload = await res.json();

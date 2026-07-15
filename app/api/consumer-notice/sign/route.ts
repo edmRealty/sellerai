@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs/promises";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { verifyConsumerNoticeToken } from "@/lib/esign";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,93 @@ const parseSignature = (dataUrl: string) => {
   if (!match) return null;
   return Buffer.from(match[1], "base64");
 };
+
+async function persistConsumerNoticeSignature(params: {
+  listingId?: string;
+  name: string;
+  email: string;
+  fileName: string;
+}) {
+  if (!params.listingId) return;
+
+  try {
+    const { data: listing, error: listingError } = await supabaseAdmin
+      .from("listings")
+      .select("id, data")
+      .eq("id", params.listingId)
+      .maybeSingle();
+    if (listingError || !listing) {
+      if (listingError) console.warn("Consumer Notice listing lookup failed:", listingError.message);
+      return;
+    }
+
+    const { data: latestDocument, error: documentLookupError } = await supabaseAdmin
+      .from("listing_documents")
+      .select("version")
+      .eq("listing_id", params.listingId)
+      .eq("kind", "consumer_notice")
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (documentLookupError) {
+      console.warn("Consumer Notice document lookup failed:", documentLookupError.message);
+    }
+    const version = Number(latestDocument?.version || 0) + 1;
+    let signedBy: string | null = null;
+    try {
+      const users = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      signedBy = users.data.users.find((user) => user.email?.toLowerCase() === params.email.toLowerCase())?.id ?? null;
+    } catch (error: any) {
+      console.warn("Consumer Notice signer lookup failed:", error?.message || "unknown error");
+    }
+
+    const signedAt = new Date().toISOString();
+    const { error: documentError } = await supabaseAdmin.from("listing_documents").insert({
+      listing_id: params.listingId,
+      kind: "consumer_notice",
+      version,
+      status: "signed",
+      file_name: params.fileName,
+      signed_by: signedBy,
+      signed_at: signedAt
+    });
+    if (documentError) {
+      console.warn("Consumer Notice document insert failed:", documentError.message);
+      return;
+    }
+
+    const listingData = (listing.data ?? {}) as Record<string, any>;
+    const paperwork = { ...(listingData.paperwork ?? {}), consumerNoticeStatus: "sent" };
+    const { error: listingUpdateError } = await supabaseAdmin
+      .from("listings")
+      .update({
+        consumer_notice_status: "sent",
+        data: { ...listingData, paperwork }
+      })
+      .eq("id", params.listingId);
+    if (listingUpdateError) {
+      console.warn("Consumer Notice listing status update failed:", listingUpdateError.message);
+    }
+
+    const { error: eventError } = await supabaseAdmin.from("listing_events").insert({
+      listing_id: params.listingId,
+      actor_id: signedBy,
+      actor_role: "seller",
+      event_type: "cn_signed",
+      payload: {
+        via: "hmac_esign",
+        fileName: params.fileName,
+        signerEmail: params.email,
+        signerName: params.name,
+        signedAt,
+        documentVersion: version
+      }
+    });
+    if (eventError) console.warn("Consumer Notice signature event insert failed:", eventError.message);
+  } catch (error: any) {
+    console.warn("Consumer Notice signature persistence failed:", error?.message || "unknown error");
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -31,6 +119,7 @@ export async function POST(req: Request) {
     const name = signerName || payload.name || "Seller";
     const address = payload.address;
     const email = payload.email;
+    const listingId = payload.listingId;
     const signedDate = new Date().toLocaleDateString("en-US");
 
     const pdfPath = path.join(process.cwd(), "public", "docs", "consumer-notice.pdf");
@@ -171,6 +260,7 @@ export async function POST(req: Request) {
         </div>
       `;
 
+    const signedFileName = "Consumer-Notice-Signed.pdf";
     if (resendKey && resendFrom) {
       const resendResponse = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -185,7 +275,7 @@ export async function POST(req: Request) {
           html: emailHtml,
           attachments: [
             {
-              filename: "Consumer-Notice-Signed.pdf",
+              filename: signedFileName,
               content: Buffer.from(signedPdf).toString("base64")
             }
           ]
@@ -209,12 +299,19 @@ export async function POST(req: Request) {
         html: emailHtml,
         attachments: [
           {
-            filename: "Consumer-Notice-Signed.pdf",
+            filename: signedFileName,
             content: Buffer.from(signedPdf)
           }
         ]
       });
     }
+
+    await persistConsumerNoticeSignature({
+      listingId,
+      name,
+      email,
+      fileName: signedFileName
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
