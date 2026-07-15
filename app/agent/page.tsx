@@ -56,6 +56,16 @@ type AgentDoc = {
   link?: string;
 };
 
+type ServerDocument = {
+  id: string;
+  kind: string;
+  version: number;
+  status: string;
+  file_name?: string | null;
+  signed_at?: string | null;
+  has_file: boolean;
+};
+
 type PaperworkRecord = NonNullable<ListingRecord["paperwork"]>;
 
 const readJson = <T,>(key: string): T | null => {
@@ -181,6 +191,7 @@ export default function AgentApprovalsPage() {
   const [note, setNote] = useState("");
   const [serverMode, setServerMode] = useState(false);
   const [events, setEvents] = useState<ListingEvent[]>([]);
+  const [serverDocuments, setServerDocuments] = useState<ServerDocument[]>([]);
 
   // Server-backed portal: list every assigned listing from Supabase.
   // Falls back to the browser-local prototype when Supabase is not
@@ -279,8 +290,35 @@ export default function AgentApprovalsPage() {
     };
   }, [selectedId, serverMode]);
 
+  useEffect(() => {
+    if (!serverMode || !selectedId) {
+      setServerDocuments([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadDocuments = async () => {
+      try {
+        const response = await fetch(`/api/listings/documents?listingId=${encodeURIComponent(selectedId)}`);
+        if (!response.ok || cancelled) return;
+        const payload = await response.json();
+        setServerDocuments(Array.isArray(payload?.documents) ? payload.documents : []);
+      } catch {
+        if (!cancelled) setServerDocuments([]);
+      }
+    };
+
+    loadDocuments();
+    const interval = window.setInterval(loadDocuments, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedId, serverMode]);
+
   const selected = listings.find((item) => item.id === selectedId) ?? listings[0] ?? null;
   const docs = buildDocs(selected?.data ?? null);
+  const signedConsumerNotice = serverDocuments.find((document) => document.kind === "consumer_notice" && document.status === "signed" && document.has_file);
   const pendingCount = listings.reduce((sum, item) => sum + buildDocs(item.data).filter((doc) => doc.status === "requested" || doc.status === "sent" || doc.status === "signed").length, 0);
   const approvedCount = listings.reduce((sum, item) => sum + buildDocs(item.data).filter((doc) => doc.status === "approved").length, 0);
 
@@ -444,6 +482,7 @@ export default function AgentApprovalsPage() {
                       <h3 style={{ margin: 0, fontSize: 16 }}>{doc.label}</h3>
                       <p style={{ margin: "5px 0 0", color: "#64748b", lineHeight: 1.45 }}>{doc.description}</p>
                       {doc.link ? <a href={doc.link} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 7, color: "#b45309", fontWeight: 800 }}>Open brochure link</a> : null}
+                      {doc.id === "cn" && signedConsumerNotice ? <a href={`/api/documents/${signedConsumerNotice.id}/download`} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 7, color: "#166534", fontWeight: 800 }}>View signed PDF</a> : null}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <span style={{ ...pillStyle, ...statusTone(doc.status) }}>{statusText(doc.status)}</span>

@@ -22,6 +22,7 @@ async function persistConsumerNoticeSignature(params: {
   name: string;
   email: string;
   fileName: string;
+  pdfBytes: Uint8Array;
 }) {
   if (!params.listingId) return;
 
@@ -48,6 +49,20 @@ async function persistConsumerNoticeSignature(params: {
       console.warn("Consumer Notice document lookup failed:", documentLookupError.message);
     }
     const version = Number(latestDocument?.version || 0) + 1;
+    let storagePath: string | null = null;
+    const destination = `listings/${params.listingId}/consumer-notice-v${version}.pdf`;
+    const { data: upload, error: uploadError } = await supabaseAdmin.storage
+      .from("documents")
+      .upload(destination, params.pdfBytes, {
+        contentType: "application/pdf",
+        upsert: false
+      });
+    if (uploadError) {
+      console.warn("Consumer Notice storage upload failed:", uploadError.message);
+    } else {
+      storagePath = upload?.path ?? null;
+    }
+
     let signedBy: string | null = null;
     try {
       const users = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -63,6 +78,7 @@ async function persistConsumerNoticeSignature(params: {
       version,
       status: "signed",
       file_name: params.fileName,
+      storage_path: storagePath,
       signed_by: signedBy,
       signed_at: signedAt
     });
@@ -310,7 +326,8 @@ export async function POST(req: Request) {
       listingId,
       name,
       email,
-      fileName: signedFileName
+      fileName: signedFileName,
+      pdfBytes: signedPdf
     });
 
     return NextResponse.json({ success: true });

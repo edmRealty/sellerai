@@ -27,6 +27,13 @@ type ServerListing = {
   listing_agreement_status?: string | null;
 };
 
+type ServerDocument = {
+  id: string;
+  kind: string;
+  status: string;
+  has_file: boolean;
+};
+
 const formatCurrency = (value?: number | null) =>
   typeof value === "number"
     ? value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })
@@ -56,6 +63,7 @@ export default function DashboardPage() {
   const [serverListing, setServerListing] = useState<ServerListing | null>(null);
   const [events, setEvents] = useState<ListingEvent[]>([]);
   const [serverReady, setServerReady] = useState(false);
+  const [serverDocuments, setServerDocuments] = useState<ServerDocument[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -72,15 +80,17 @@ export default function DashboardPage() {
     let cancelled = false;
     const loadServerTruth = async () => {
       try {
-        const [listingResponse, eventsResponse] = await Promise.all([
+        const [listingResponse, eventsResponse, documentsResponse] = await Promise.all([
           fetch(`/api/listings/current?listingId=${encodeURIComponent(listingId)}`),
-          fetch(`/api/listings/events?listingId=${encodeURIComponent(listingId)}`)
+          fetch(`/api/listings/events?listingId=${encodeURIComponent(listingId)}`),
+          fetch(`/api/listings/documents?listingId=${encodeURIComponent(listingId)}`)
         ]);
-        if (cancelled || !listingResponse.ok || !eventsResponse.ok) return;
-        const [listingPayload, eventsPayload] = await Promise.all([listingResponse.json(), eventsResponse.json()]);
+        if (cancelled || !listingResponse.ok || !eventsResponse.ok || !documentsResponse.ok) return;
+        const [listingPayload, eventsPayload, documentsPayload] = await Promise.all([listingResponse.json(), eventsResponse.json(), documentsResponse.json()]);
         if (!listingPayload?.configured || !listingPayload?.listing) return;
         setServerListing(listingPayload.listing as ServerListing);
         setEvents(Array.isArray(eventsPayload?.events) ? eventsPayload.events : []);
+        setServerDocuments(Array.isArray(documentsPayload?.documents) ? documentsPayload.documents : []);
         setServerReady(true);
       } catch {
         // The local dashboard remains usable when the server is unavailable.
@@ -107,6 +117,7 @@ export default function DashboardPage() {
   };
 
   const nextTask = TASKS.find((task) => tasks[task] !== "done");
+  const signedConsumerNotice = serverDocuments.find((document) => document.kind === "consumer_notice" && document.status === "signed" && document.has_file);
 
   return (
     <div style={{ padding: 32, maxWidth: 900, margin: "0 auto" }}>
@@ -149,6 +160,14 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {serverReady && signedConsumerNotice ? (
+        <p style={{ marginTop: 18 }}>
+          <a href={`/api/documents/${signedConsumerNotice.id}/download`} target="_blank" rel="noreferrer" style={{ color: "#166534", fontWeight: 800 }}>
+            Download your signed Consumer Notice
+          </a>
+        </p>
       ) : null}
     </div>
   );
