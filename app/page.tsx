@@ -12,6 +12,7 @@ import {
   uploadListingPhoto,
   verifyAuthOtp
 } from "@/lib/listing-sync";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const APP_VERSION = "v41";
 const VALUATION_CACHE_VERSION = "v41";
@@ -691,6 +692,12 @@ export default function Home() {
   const autocompleteAbortRef = useRef<AbortController | null>(null);
   const hasSkippedInitialSessionSaveRef = useRef(false);
   const helpMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // Initialize the browser client immediately so Supabase can consume an
+    // incoming magic-link session before the visitor moves into a gated area.
+    void getSupabaseBrowserClient()?.auth.getSession();
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
