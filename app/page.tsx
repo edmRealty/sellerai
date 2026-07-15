@@ -694,9 +694,21 @@ export default function Home() {
   const helpMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Initialize the browser client immediately so Supabase can consume an
-    // incoming magic-link session before the visitor moves into a gated area.
-    void getSupabaseBrowserClient()?.auth.getSession();
+    // Supabase email links may return session tokens in the URL fragment.
+    // Store that session before the visitor moves into a gated area, then
+    // remove credentials from the visible URL.
+    const client = getSupabaseBrowserClient();
+    if (!client || typeof window === "undefined") return;
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    if (!accessToken || !refreshToken) {
+      void client.auth.getSession();
+      return;
+    }
+    void client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).then(() => {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    });
   }, []);
 
   useEffect(() => {
