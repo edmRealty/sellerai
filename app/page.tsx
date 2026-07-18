@@ -4331,12 +4331,13 @@ export default function Home() {
                 ×
               </button>
             </div>
-            <a href="/seller-tools">How it works</a>
-            <a href="/about">About us</a>
-            <a href="mailto:ben@housingpa.com">Contact us</a>
+            <button type="button" onClick={() => openHelpTopic("How does this work?", "SellerAI helps organize property information, disclosures, eSign checkpoints, and listing preparation while a licensed broker remains involved. You handle the seller-side inputs, and the workflow keeps each next step clear.")}>How does this work?</button>
+            <button type="button" onClick={() => openHelpTopic("Is it really only 1%?", "Yes. The SellerAI path is designed around a total broker fee of only 1% for this listing workflow, while still keeping broker representation and required compliance steps in place.")}>Is it really only 1%?</button>
+            <button type="button" onClick={() => openHelpTopic("About us", "SellerAI is part of housingPA. The goal is to combine licensed brokerage support with an AI-assisted workflow that keeps seller preparation organized and easier to review.")}>About us</button>
+            <button type="button" onClick={() => openHelpTopic("Contact us", "Support: ben@housingpa.com")}>Contact us</button>
             <button type="button" onClick={handleNewListing}>Back to homepage</button>
-            <a href="https://housingpa.com/valuator.html">AI Valuator</a>
-            <a href="https://housingpa.com/offers/">Offers</a>
+            <button type="button" onClick={() => openHelpTopic("AI Valuator", "The AI Valuator creates a working pricing input from property details, comparable sales, market context, and the information you provide. It is not a final valuation, sale-price promise, or listing recommendation.")}>AI Valuator</button>
+            <button type="button" onClick={() => openHelpTopic("Offer", "Offer tools will be added here later for buyer activity, offer review, and negotiation support.")}>Offer</button>
             <a href="https://housingpa.com/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
             <a href="https://housingpa.com/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
           </div>
