@@ -2101,7 +2101,7 @@ body.dark .pending-panel {
   left: 58px;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1023px) {
   body:has(.main.landing) {
     height: 100dvh;
     overflow: hidden;
@@ -2537,7 +2537,7 @@ body.dark .pending-panel {
   background: #f8fafc;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1023px) {
   .seller-help-menu {
     top: auto;
     right: 14px;
