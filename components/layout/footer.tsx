@@ -18,8 +18,8 @@ export function Footer() {
 
                 <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-slate-900 gap-4">
                     <div className="flex gap-6">
-                        <Link href="https://housingpa.com/terms.html" className="hover:text-slate-300 transition-colors">Terms of Service</Link>
-                        <Link href="https://housingpa.com/privacy.html" className="hover:text-slate-300 transition-colors">Privacy Policy</Link>
+                        <Link href="https://housingpa.com/terms" className="hover:text-slate-300 transition-colors">Terms of Service</Link>
+                        <Link href="https://housingpa.com/privacy-policy" className="hover:text-slate-300 transition-colors">Privacy Policy</Link>
                         <Link href="/fair-housing" className="hover:text-slate-300 transition-colors">Fair Housing</Link>
                         <Link href="/dmca" className="hover:text-slate-300 transition-colors">DMCA</Link>
                     </div>

@@ -4337,8 +4337,8 @@ export default function Home() {
             <button type="button" onClick={handleNewListing}>Back to homepage</button>
             <a href="https://housingpa.com/valuator.html">AI Valuator</a>
             <a href="https://housingpa.com/offers/">Offers</a>
-            <a href="https://housingpa.com/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>
-            <a href="https://housingpa.com/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>
+            <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy Policy</a>
+            <a href="https://housingpa.com/terms" target="_blank" rel="noreferrer">Terms of Use</a>
           </div>
         )}
       </div>
