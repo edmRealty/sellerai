@@ -136,7 +136,7 @@ const hashString = (input: string) => {
 const VALUATION_COOLDOWN_MS = 45_000;
 const MIN_VALUATION_MS = 30_000;
 const LOCAL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PROPERTY_LOOKUP_CACHE_VERSION = "v3-no-fake-facts";
+const PROPERTY_LOOKUP_CACHE_VERSION = "v4-trusted-property-sources";
 
 type AddressSuggestion = {
   id: string;
@@ -399,7 +399,7 @@ const hydrateListingData = (loaded: Partial<ListingData> | null | undefined) => 
 };
 
 const INTRO_TEXT =
-  "Thank you for choosing housingPA for your next property sale. By using AI, you save a ton of time, and that helps us bring costs down. You can very quickly list your property on the market with a licensed agent, real marketing, and the compliance that comes with it, while still keeping the fast, direct feeling of FSBO. And you pay only a 1% broker fee. Let’s get started.";
+  "Hi, I am Ben's online assistant, and I can take you step by step toward listing your property with Quinn & Wilson. Your listing agent is Beny Hen, Associate Broker, Pennsylvania license #AB069631.";
 
 const WORKFLOW_PROGRESS: Record<ChatStep, { label: string; percent: number }> = {
   intro: { label: "Welcome", percent: 5 },
@@ -425,173 +425,6 @@ const WORKFLOW_PROGRESS: Record<ChatStep, { label: string; percent: number }> = 
   dashboard: { label: "Ready", percent: 100 }
 };
 
-const GAME_MILESTONES: { step: ChatStep; title: string; points: number }[] = [
-  { step: "intro", title: "Started", points: 50 },
-  { step: "confirm", title: "Address checked", points: 75 },
-  { step: "details", title: "Details verified", points: 90 },
-  { step: "features", title: "Features added", points: 90 },
-  { step: "valuation", title: "Price reviewed", points: 120 },
-  { step: "acknowledgements", title: "Seller info ready", points: 100 },
-  { step: "final-price", title: "Launch price chosen", points: 120 },
-  { step: "activation", title: "Email verified", points: 90 },
-  { step: "consumer-notice", title: "Notice started", points: 85 },
-  { step: "listing-intro", title: "Agreement started", points: 90 },
-  { step: "marketing-intro", title: "Marketing ready", points: 90 },
-  { step: "dashboard", title: "Listing command center", points: 100 }
-];
-
-const GAME_STEP_ORDER: ChatStep[] = [
-  "intro",
-  "confirm",
-  "details",
-  "features",
-  "valuation",
-  "addons",
-  "acknowledgements",
-  "final-price",
-  "activation",
-  "ownership",
-  "consumer-notice",
-  "consumer-wait",
-  "listing-intro",
-  "listing-details",
-  "dual-agency",
-  "lead-paint",
-  "listing-wait",
-  "marketing-intro",
-  "photos",
-  "description",
-  "dashboard"
-];
-
-const GAME_HELPERS = [
-  {
-    id: "price",
-    name: "Price Review",
-    role: "Pricing inputs",
-    initials: "PR",
-    hint: "Add known facts before any price review.",
-    body:
-      "Add what you know about condition, updates, room count, and property strengths. These details help organize pricing inputs for a property-specific review; they are not a final valuation."
-  },
-  {
-    id: "paperwork",
-    name: "Paperwork",
-    role: "Compliance steps",
-    initials: "PW",
-    hint: "Complete each required step once.",
-    body:
-      "Acknowledgements, notices, and signing checkpoints keep the seller file organized before marketing or listing work moves forward."
-  },
-  {
-    id: "launch",
-    name: "Launch Prep",
-    role: "Marketing inputs",
-    initials: "LP",
-    hint: "Photos and notes improve review quality.",
-    body:
-      "Photos, access notes, updates, and condition details help explain the property story when the listing is reviewed and prepared."
-  }
-];
-
-const SELLER_GUIDANCE_MVP_ENABLED = true;
-
-const STEP_GUIDANCE: Partial<Record<ChatStep, { next: string; why: string }>> = {
-  intro: {
-    next: "Start with the property address so SellerAI can organize the file around the correct property.",
-    why: "The address anchors the later review: property details, pricing inputs, disclosures, and marketing preparation."
-  },
-  confirm: {
-    next: "Confirm the address and basic property facts before continuing.",
-    why: "Accurate basics reduce rework and make the pricing and disclosure steps easier to review."
-  },
-  details: {
-    next: "Review the measurable details: beds, baths, square footage, year built, and condition.",
-    why: "These facts help separate known property information from assumptions before a seller review."
-  },
-  features: {
-    next: "Add features, updates, and condition notes that may not appear in public records.",
-    why: "More complete details can support a stronger next-step plan without making value promises."
-  },
-  valuation: {
-    next: "Treat the estimate as a working input, then review details or continue to the next step.",
-    why: "This is not a valuation or guaranteed sale price. A property-specific review is still required."
-  },
-  acknowledgements: {
-    next: "Confirm seller contact details and required acknowledgements.",
-    why: "This keeps the seller file organized before the listing paperwork step."
-  },
-  "final-price": {
-    next: "Enter the intended launch-price direction for document preparation.",
-    why: "A clear input helps prepare the next step while still leaving room for broker review."
-  },
-  activation: {
-    next: "Verify the seller email so the dashboard and document workflow can continue.",
-    why: "Email verification helps keep the seller file tied to the right contact."
-  },
-  "consumer-notice": {
-    next: "Start the Consumer Notice workflow and wait for the required review/signing step.",
-    why: "This required Pennsylvania disclosure step should stay separate from the listing agreement itself."
-  },
-  "listing-intro": {
-    next: "Review the listing agreement path before entering detailed listing terms.",
-    why: "This helps clarify the broker-supported process before moving toward signature."
-  },
-  "marketing-intro": {
-    next: "Prepare the marketing inputs that make the listing easier to review and prepare.",
-    why: "Photos, access notes, and description quality matter once the paperwork path is ready."
-  },
-  dashboard: {
-    next: "Use the dashboard to track the next operational task.",
-    why: "The dashboard keeps next steps organized after the setup flow is complete."
-  }
-};
-
-const getGameProgress = (step: ChatStep) => {
-  const stepIndex = Math.max(0, GAME_STEP_ORDER.indexOf(step));
-  const earnedMilestones = GAME_MILESTONES.filter((milestone) => {
-    const milestoneIndex = GAME_STEP_ORDER.indexOf(milestone.step);
-    return milestoneIndex !== -1 && milestoneIndex <= stepIndex;
-  });
-  const totalPoints = GAME_MILESTONES.reduce((sum, milestone) => sum + milestone.points, 0);
-  const earnedPoints = earnedMilestones.reduce((sum, milestone) => sum + milestone.points, 0);
-  const nextMilestone =
-    GAME_MILESTONES.find((milestone) => {
-      const milestoneIndex = GAME_STEP_ORDER.indexOf(milestone.step);
-      return milestoneIndex > stepIndex;
-    }) || null;
-
-  return {
-    earnedMilestones,
-    earnedPoints,
-    nextMilestone,
-    totalPoints
-  };
-};
-
-const getStepGuidance = (step: ChatStep, workflowProgress: { label: string; percent: number }) =>
-  STEP_GUIDANCE[step] || {
-    next: `Continue the ${workflowProgress.label.toLowerCase()} step when the information is accurate.`,
-    why: "Each completed step reduces uncertainty and improves the quality of the next review."
-  };
-
-const getReadinessLabel = (score: number) => {
-  if (score >= 90) return "Strong seller-readiness profile";
-  if (score >= 75) return "Review ready";
-  if (score >= 50) return "Good progress";
-  if (score >= 25) return "Needs key details";
-  return "Getting started";
-};
-
-const getReadinessExplanation = (score: number, nextMilestone: { title: string } | null) => {
-  if (score >= 90) {
-    return "This reflects a mostly complete seller-readiness profile. A property-specific review is still required before pricing or listing decisions.";
-  }
-  if (nextMilestone) {
-    return `This reflects profile completeness, not home value. Complete "${nextMilestone.title}" to improve review quality.`;
-  }
-  return "This score reflects profile completeness. It is not a home valuation or pricing recommendation.";
-};
 
 function TypewriterText({
   text,
@@ -655,7 +488,6 @@ export default function Home() {
   const [reportEmail, setReportEmail] = useState("");
   const [reportSending, setReportSending] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
-  const [helpTopic, setHelpTopic] = useState<{ title: string; body: React.ReactNode } | null>(null);
   const [listingAgreementExplainerOpen, setListingAgreementExplainerOpen] = useState(false);
   const [infoPrompt, setInfoPrompt] = useState<{
     id: string;
@@ -668,7 +500,6 @@ export default function Home() {
   const [addressSearching, setAddressSearching] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [themeMode, setThemeMode] = useState<"auto" | "manual">("auto");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [valuationSkipped, setValuationSkipped] = useState(false);
   const [lastValuationAt, setLastValuationAt] = useState<number | null>(null);
   const [valuationStage, setValuationStage] = useState<
@@ -1288,12 +1119,12 @@ export default function Home() {
       {
         id: uid(),
         role: "assistant",
-        content: "Hi! I’m your SellerAI agent. I’ll guide you through pricing, prep, and launch."
+        content: "Hi, I am Ben's online assistant. I can take you step by step toward listing your property with Quinn & Wilson. Your listing agent is Beny Hen, Associate Broker, Pennsylvania license #AB069631."
       },
       {
         id: uid(),
         role: "assistant",
-        content: `I pulled the basics for ${item.address}. Here’s what I found: ${summary}. Is this correct?`
+        content: `I found ${item.address} and pulled a few initial property facts: ${summary}. Please confirm them before we continue.`
       }
     ];
     if (mode === "edit") {
@@ -2644,8 +2475,16 @@ export default function Home() {
         return (
           <div className="message assistant">
             <div className="card-bubble intro-bubble">
-              <h3>Welcome to SellerAI</h3>
+              <h3>Welcome</h3>
               <TypewriterText text={INTRO_TEXT} onDone={() => setIntroComplete(true)} />
+              <div className="subject-property-intro">
+                <span>Subject property</span>
+                <strong>{data.address}</strong>
+                <p>
+                  I found this property and pulled a few initial details: {getPropertySummaryText(data.details)}.
+                  We&apos;ll verify those facts together before preparing pricing inputs, paperwork, and listing next steps.
+                </p>
+              </div>
               <div className="quick-actions">
                 <button
                   type="button"
@@ -4299,22 +4138,9 @@ export default function Home() {
   };
 
   const workflowProgress = WORKFLOW_PROGRESS[step] || WORKFLOW_PROGRESS.confirm;
-  const gameProgress = getGameProgress(step);
-  const recentMilestones = gameProgress.earnedMilestones.slice(-3);
-  const stepGuidance = getStepGuidance(step, workflowProgress);
-  const readinessScore = Math.round((gameProgress.earnedPoints / gameProgress.totalPoints) * 100);
-  const readinessLabel = getReadinessLabel(readinessScore);
-  const readinessExplanation = getReadinessExplanation(readinessScore, gameProgress.nextMilestone);
-  const openHelpTopic = (title: string, body: React.ReactNode) => {
-    setHelpTopic({ title, body });
-    setHelpMenuOpen(false);
-  };
-  const openGameHelper = (helper: (typeof GAME_HELPERS)[number]) => {
-    openHelpTopic(`${helper.name} - ${helper.role}`, helper.body);
-  };
 
   return (
-    <div className={`app-shell ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
+    <div className="app-shell seller-app">
       <div className="seller-help-menu" ref={helpMenuRef}>
         <button type="button" className="seller-theme-trigger" onClick={toggleTheme}>
           <Flashlight size={15} strokeWidth={2.2} />
@@ -4334,7 +4160,8 @@ export default function Home() {
             <a href="/seller-tools">How it works</a>
             <a href="/about">About us</a>
             <a href="mailto:ben@housingpa.com">Contact us</a>
-            <button type="button" onClick={handleNewListing}>Back to homepage</button>
+            <button type="button" onClick={handleNewListing}>Start a new listing</button>
+            <button type="button" onClick={() => setReportOpen(true)}>Report a problem</button>
             <a href="https://housingpa.com/valuator.html">AI Valuator</a>
             <a href="https://housingpa.com/offers/">Offers</a>
             <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy Policy</a>
@@ -4342,141 +4169,12 @@ export default function Home() {
           </div>
         )}
       </div>
-      <aside className="sidebar">
-        <div>
-          <div className="sidebar-top">
-            <div className="brand-logo">
-              <span className="brand-word">Seller</span>
-              <span className="brand-ai">AI</span>
-            </div>
-            <button
-              type="button"
-              className="sidebar-toggle"
-              onClick={() => setSidebarOpen((prev) => !prev)}
-              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              <span className="sidebar-toggle-icon" aria-hidden="true" />
-              <span className="sr-only">{sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}</span>
-            </button>
-          </div>
-          <div className="sidebar-subtitle">AI listing companion</div>
-        </div>
-        <button type="button" className="sidebar-action" onClick={handleNewListing}>
-          <span className="sidebar-icon">+</span>
-          <span className="sidebar-text">New listing</span>
-        </button>
-        <button type="button" className="sidebar-theme-toggle mobile-theme-toggle" onClick={toggleTheme}>
-          <span className="sidebar-icon" aria-hidden="true">
-            <Flashlight size={14} strokeWidth={2.2} />
-          </span>
-          <span className="sidebar-text">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-        </button>
-        <div className="sidebar-section">
-          <div className="sidebar-label">Current listing</div>
-          <div className="sidebar-card">{data.address || "No active address"}</div>
-        </div>
-        <div className="sidebar-section seller-score-card" aria-label="Seller score">
-          <div className="seller-score-top">
-            <div>
-              <div className="sidebar-label">Readiness score</div>
-              <strong>{readinessScore}</strong>
-            </div>
-            <span>{readinessLabel}</span>
-          </div>
-          <div className="seller-score-track">
-            <div
-              className="seller-score-bar"
-              style={{ width: `${readinessScore}%` }}
-            />
-          </div>
-          <div className="seller-score-next">
-            {gameProgress.nextMilestone
-              ? `Next: ${gameProgress.nextMilestone.title}`
-              : "All milestones complete"}
-          </div>
-          <p className="seller-score-explain">{readinessExplanation}</p>
-          <div className="seller-helper-row">
-            {GAME_HELPERS.map((helper) => (
-              <button
-                key={helper.id}
-                type="button"
-                className="seller-helper-chip"
-                onClick={() => openGameHelper(helper)}
-                title={`${helper.name}: ${helper.role}`}
-                aria-label={`${helper.name}, ${helper.role}`}
-              >
-                {helper.initials}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-label">Listing history</div>
-          <div className="sidebar-list">
-            {listingHistory.length === 0 && <div className="summary-text">No previous addresses.</div>}
-            {listingHistory.map((item) => (
-              <div
-                key={item.id}
-                className={`sidebar-list-item${item.address === data.address ? " active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="sidebar-list-main"
-                  onClick={() => openListing(item, "view")}
-                >
-                  {item.address}
-                </button>
-                <div className="sidebar-list-actions">
-                  <button
-                    type="button"
-                    className="sidebar-list-action"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openListing(item, "edit");
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="sidebar-list-action danger"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      deleteListing(item.id);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className="sidebar-report"
-            onClick={() => setReportOpen(true)}
-          >
-            <span className="sidebar-icon">!</span>
-            <span className="sidebar-text">Report a problem</span>
-          </button>
-          <button
-            type="button"
-            className="sidebar-report mobile-footer-menu"
-            onClick={() => setHelpMenuOpen((prev) => !prev)}
-          >
-            <span className="sidebar-icon">☰</span>
-            <span className="sidebar-text">Menu</span>
-          </button>
-        </div>
-      </aside>
-
       <main className={`main ${view === "landing" ? "landing" : "chat-view"}`}>
         <div className="main-inner">
           {view === "landing" && (
             <section className="hero">
-              <h1>Start Your Seller Readiness Review</h1>
+              <div className="seller-wordmark" aria-label="SellerAI">Seller<span>AI</span></div>
+              <h1>What Property You&apos;d like to sell?</h1>
               <form
                 className="search-form"
                 onSubmit={(e) => {
@@ -4497,7 +4195,7 @@ export default function Home() {
                     spellCheck={false}
                   />
                   <button className="btn btn-primary search-submit" type="submit" disabled={loading}>
-                    {loading ? "Searching..." : "Start review"}
+                    {loading ? "Searching..." : "Continue"}
                   </button>
                 </div>
                 <p className="hero-start-note">
@@ -4521,36 +4219,6 @@ export default function Home() {
                 {mapsError && <p className="summary-text">{mapsError}</p>}
                 {feedback && <p className="summary-text">{feedback}</p>}
               </form>
-              <div className="landing-game-panel" aria-label="SellerAI readiness progress preview">
-                <div className="landing-game-score">
-                  <span>Readiness Score</span>
-                  <strong>0</strong>
-                </div>
-                <div className="landing-game-path">
-                  <span className="landing-game-bubble active">Start</span>
-                  <span className="landing-game-bubble">Address</span>
-                  <span className="landing-game-bubble">Pricing Inputs</span>
-                  <span className="landing-game-bubble">Next-Step Plan</span>
-                </div>
-                <div className="landing-helper-row">
-                  {GAME_HELPERS.map((helper) => (
-                    <button
-                      key={helper.id}
-                      type="button"
-                      className="landing-helper"
-                      onClick={() => openGameHelper(helper)}
-                      aria-label={`${helper.name}, ${helper.role}`}
-                    >
-                      <span>{helper.initials}</span>
-                      <small>{helper.role}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="hero-note">
-                An AI-assisted listing workflow for organizing property details, pricing inputs, paperwork, and next
-                steps before a seller review.
-              </p>
             </section>
           )}
 
@@ -4558,75 +4226,14 @@ export default function Home() {
             <section>
               <div className="chat-header">
                 <div>
-                  <h2>{data.address || "Listing chat"}</h2>
-                  <div className="summary-text">Live conversation with your SellerAI agent</div>
+                  <div className="chat-brand">SellerAI</div>
+                  <h2>What Property You&apos;d like to sell?</h2>
+                  <div className="summary-text">{data.address || "Listing conversation"}</div>
                 </div>
                 <div className="chat-actions">
-                  <div className="chat-status">Live chat</div>
+                  <div className="chat-stage">{workflowProgress.label}</div>
                 </div>
               </div>
-              <div className="workflow-progress" aria-label={`SellerAI workflow progress ${workflowProgress.percent}%`}>
-                <div className="workflow-progress-top">
-                  <span>{workflowProgress.label}</span>
-                  <strong>{workflowProgress.percent}%</strong>
-                </div>
-                <div className="workflow-progress-track">
-                  <div
-                    className="workflow-progress-bar"
-                    style={{ width: `${workflowProgress.percent}%` }}
-                  />
-                </div>
-              </div>
-              <div className="game-progress-strip" aria-label="SellerAI readiness milestones">
-                <div className="game-progress-score">
-                  <span>Readiness Score</span>
-                  <strong>{readinessScore}</strong>
-                  <small>{readinessLabel}</small>
-                </div>
-                <div className="game-milestone-bubbles">
-                  {recentMilestones.map((milestone) => (
-                    <span key={milestone.step} className="game-milestone-bubble">
-                      {milestone.title}
-                    </span>
-                  ))}
-                  {gameProgress.nextMilestone && (
-                    <span className="game-milestone-bubble next">
-                      Next: {gameProgress.nextMilestone.title}
-                    </span>
-                  )}
-                </div>
-                <div className="game-helper-bubbles">
-                  {GAME_HELPERS.map((helper) => (
-                    <button
-                      key={helper.id}
-                      type="button"
-                      className="game-helper-bubble"
-                      onClick={() => openGameHelper(helper)}
-                      aria-label={`${helper.name}, ${helper.role}`}
-                    >
-                      <span>{helper.initials}</span>
-                      <small>{helper.hint}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {SELLER_GUIDANCE_MVP_ENABLED && (
-                <p className="game-progress-note">
-                  This score reflects how complete your seller-readiness profile is. It is not a home valuation or pricing recommendation.
-                </p>
-              )}
-              {SELLER_GUIDANCE_MVP_ENABLED && (
-                <div className="seller-guidance-panel" aria-label="SellerAI next best step">
-                  <div>
-                    <span className="seller-guidance-kicker">Next best step</span>
-                    <p>{stepGuidance.next}</p>
-                  </div>
-                  <div>
-                    <span className="seller-guidance-kicker">Why this matters</span>
-                    <p>{stepGuidance.why}</p>
-                  </div>
-                </div>
-              )}
               {feedback && <p className="summary-text chat-feedback">{feedback}</p>}
 
               <div className="chat-container">
@@ -4675,6 +4282,21 @@ export default function Home() {
           )}
         </div>
       </main>
+      <footer className="thin-footer seller-footer">
+        <span className="footer-description">
+          An AI-assisted listing workflow for organizing property details, pricing inputs, paperwork, and next steps before a seller review.
+        </span>
+        <span className="footer-links">
+          Informational only. Not an appraisal. © 2026
+          <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy</a>
+          <a href="https://housingpa.com/terms" target="_blank" rel="noreferrer">Terms</a>
+          <a href="https://investor.housingpa.com/testers" target="_blank" rel="noreferrer">Free tester group</a>
+          <a href="/seller-tools">How it works</a>
+          <a href="https://value.housingpa.com/" target="_blank" rel="noreferrer">Try Commercial</a>
+          <a href="https://housingpa.com/" target="_blank" rel="noreferrer">Home</a>
+          <a href="/agent/login">Sign in</a>
+        </span>
+      </footer>
       <Modal
         isOpen={reportOpen}
         onClose={() => setReportOpen(false)}
@@ -4716,18 +4338,6 @@ export default function Home() {
             onClick={() => setReportOpen(false)}
           >
             Cancel
-          </button>
-        </div>
-      </Modal>
-      <Modal
-        isOpen={Boolean(helpTopic)}
-        onClose={() => setHelpTopic(null)}
-        title={helpTopic?.title || ""}
-      >
-        <p className="summary-text">{helpTopic?.body}</p>
-        <div className="quick-actions" style={{ marginTop: 16 }}>
-          <button type="button" className="btn btn-primary" onClick={() => setHelpTopic(null)}>
-            Got it
           </button>
         </div>
       </Modal>

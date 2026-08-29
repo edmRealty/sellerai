@@ -2444,6 +2444,308 @@ body.dark .pending-panel {
   }
 }
 
+/* Seller-facing conversation layout */
+.seller-app {
+  --seller-footer-height: 64px;
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.seller-app .main,
+.seller-app.sidebar-closed .main {
+  width: 100%;
+  margin-left: 0;
+}
+
+.seller-app .main-inner {
+  max-width: none;
+  width: 100%;
+}
+
+.seller-app .main.landing {
+  height: 100dvh;
+  padding: 0 24px var(--seller-footer-height);
+}
+
+.seller-app .main.chat-view {
+  height: 100dvh;
+  padding: 18px 20px calc(var(--seller-footer-height) + 10px);
+}
+
+.seller-app .main.chat-view .main-inner,
+.seller-app .main.chat-view section {
+  width: 100%;
+  max-width: none;
+}
+
+.seller-wordmark,
+.chat-brand {
+  color: var(--text);
+  font-family: "Playfair Display", serif;
+  font-weight: 600;
+}
+
+.seller-wordmark {
+  font-size: 22px;
+}
+
+.seller-wordmark span,
+.chat-brand {
+  color: var(--brand);
+}
+
+.seller-app .hero {
+  min-height: 100%;
+  padding: 0;
+  gap: 22px;
+}
+
+.seller-app .hero h1 {
+  max-width: 760px;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.seller-app .search-form {
+  max-width: 900px;
+}
+
+.seller-app .chat-header {
+  flex: 0 0 auto;
+  min-height: 68px;
+  margin: 0;
+  padding: 0 190px 14px 4px;
+}
+
+.chat-brand {
+  margin-bottom: 3px;
+  font-size: 14px;
+}
+
+.seller-app .chat-header h2 {
+  font-size: 21px;
+}
+
+.seller-app .chat-header .summary-text {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
+.chat-stage {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.seller-app .chat-feedback {
+  flex: 0 0 auto;
+  margin: 8px 4px;
+}
+
+.seller-app .chat-container {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  border-radius: 8px;
+}
+
+.seller-app .messages-area {
+  padding: 24px clamp(18px, 4vw, 52px);
+}
+
+.seller-app .message.assistant .card-bubble {
+  width: min(100%, 900px);
+}
+
+.subject-property-intro {
+  margin-top: 16px;
+  padding: 15px;
+  border-left: 3px solid var(--brand);
+  background: var(--panel-alt);
+}
+
+.subject-property-intro span,
+.subject-property-intro strong {
+  display: block;
+}
+
+.subject-property-intro span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.subject-property-intro strong {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.subject-property-intro p {
+  margin: 8px 0 0;
+  color: var(--muted-strong);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.seller-footer,
+.seller-app.sidebar-closed .seller-footer {
+  left: 0;
+  min-height: var(--seller-footer-height);
+  padding: 8px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.footer-description {
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  line-height: 1.25;
+}
+
+.seller-app .seller-help-menu {
+  top: 14px;
+  right: 18px;
+  bottom: auto;
+  pointer-events: auto;
+}
+
+@media (max-width: 700px) {
+  .seller-app {
+    --seller-footer-height: 94px;
+  }
+
+  .seller-app .main.landing {
+    padding: 0 14px var(--seller-footer-height);
+  }
+
+  .seller-app .main.chat-view {
+    padding: 0 0 var(--seller-footer-height);
+  }
+
+  .seller-app .main.chat-view section {
+    height: 100%;
+  }
+
+  .seller-app .chat-header {
+    min-height: 72px;
+    padding: 10px 98px 10px 14px;
+    text-align: left;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .seller-app .chat-header h2 {
+    max-width: none;
+    font-size: 17px;
+    text-align: left;
+  }
+
+  .seller-app .chat-actions {
+    display: none;
+  }
+
+  .seller-app .chat-container {
+    flex: 1;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .seller-app .messages-area {
+    padding: 0;
+  }
+
+  .seller-app .message {
+    max-width: 94%;
+  }
+
+  .seller-app .message.assistant {
+    max-width: 100%;
+  }
+
+  .seller-app .card-bubble {
+    padding: 18px 14px;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .seller-app .chat-input {
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .seller-app .seller-help-menu {
+    top: 10px;
+    right: 10px;
+    bottom: auto;
+    pointer-events: auto;
+  }
+
+  .seller-app .seller-help-trigger,
+  .seller-app .seller-theme-trigger {
+    display: inline-flex;
+  }
+
+  .seller-app .seller-theme-trigger span {
+    display: none;
+  }
+
+  .seller-app .seller-help-popover {
+    top: 42px;
+    bottom: auto;
+  }
+
+  .seller-app .hero h1 {
+    font-size: 34px;
+  }
+
+  .seller-footer,
+  .seller-app.sidebar-closed .seller-footer {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: var(--seller-footer-height);
+    padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  .footer-description {
+    max-width: 680px;
+    font-size: 9px;
+  }
+
+  .footer-links {
+    gap: 3px 8px;
+  }
+}
+
 .seller-help-menu {
   position: fixed;
   top: 18px;

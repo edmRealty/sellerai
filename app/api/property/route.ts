@@ -7,6 +7,7 @@ import {
   isMaintenanceError,
   notifyAndThrowMaintenance
 } from "@/lib/ai-service-health";
+import { enrichPropertyFromTrustedSources, type TrustedPropertyDetails } from "@/lib/property-data-providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ const OPENAI_MAX = Number(process.env.AI_OPENAI_MAX_CALLS) || 6;
 const GEMINI_MAX = Number(process.env.AI_GEMINI_MAX_CALLS) || 6;
 const MANUS_MAX = Number(process.env.AI_MANUS_MAX_CALLS) || 6;
 const CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS) || 24 * 60 * 60 * 1000;
-const PROPERTY_CACHE_VERSION = "v3-no-fake-facts";
+const PROPERTY_CACHE_VERSION = "v4-trusted-property-sources";
 
 const FEATURE_OPTIONS = [
   "Backyard",
@@ -230,6 +231,22 @@ function normalizeDetails(raw: any, fallback: PropertyDetails): PropertyDetails 
     leaseType: raw?.leaseType || fallback.leaseType,
     clearHeight: safeNumber(raw?.clearHeight, fallback.clearHeight || 0),
     dockDoors: safeNumber(raw?.dockDoors, fallback.dockDoors || 0)
+  };
+}
+
+function applyTrustedDetails(details: PropertyDetails, trusted: TrustedPropertyDetails): PropertyDetails {
+  const trustedFeatures = Array.isArray(trusted.features)
+    ? trusted.features.filter((feature) => FEATURE_SET.has(String(feature).toLowerCase()))
+    : [];
+  return {
+    ...details,
+    propertyType: trusted.propertyType || details.propertyType,
+    bedrooms: trusted.bedrooms ? normalizeWholeNumber(trusted.bedrooms, details.bedrooms) : details.bedrooms,
+    bathrooms: trusted.bathrooms ? normalizeHalfNumber(trusted.bathrooms, details.bathrooms) : details.bathrooms,
+    squareFeet: trusted.squareFeet ? normalizeWholeNumber(trusted.squareFeet, details.squareFeet) : details.squareFeet,
+    yearBuilt: trusted.yearBuilt ? normalizeWholeNumber(trusted.yearBuilt, details.yearBuilt) : details.yearBuilt,
+    units: trusted.units ? normalizeWholeNumber(trusted.units, details.units || 1) : details.units,
+    features: Array.from(new Set([...details.features, ...trustedFeatures]))
   };
 }
 
@@ -667,16 +684,17 @@ export async function POST(req: Request) {
       ...(Array.isArray(geocode?.types) ? geocode?.types : [])
     ].filter(Boolean);
 
-    const [census, propertyPhoto] = await Promise.all([
+    const [census, propertyPhoto, propertyEnrichment] = await Promise.all([
       buildCensusSnapshot(formattedAddress, coords.lat, coords.lon),
-      fetchMapillaryPhoto(coords.lat, coords.lon)
+      fetchMapillaryPhoto(coords.lat, coords.lon),
+      enrichPropertyFromTrustedSources(formattedAddress, coords.lat, coords.lon)
     ]);
     let aiDetails = null;
     if (!AI_FREE_MODE) {
       aiDetails = await fetchDetailsFromAI(formattedAddress, inferredTypes, clientId);
     }
     const fallback = fallbackDetails(formattedAddress, inferredTypes);
-    const details = normalizeDetails(aiDetails, fallback);
+    const details = applyTrustedDetails(normalizeDetails(aiDetails, fallback), propertyEnrichment.details);
 
     if (inferredTypes.length) {
       const placeIndustrial = inferredTypes.some((t: string) => INDUSTRIAL_TYPES.has(String(t).toLowerCase()));
@@ -692,7 +710,8 @@ export async function POST(req: Request) {
       address: formattedAddress,
       details,
       census,
-      propertyPhoto
+      propertyPhoto,
+      dataSources: propertyEnrichment.sources
     };
     setCache(cacheKey, responsePayload, CACHE_TTL_MS);
     return responsePayload;

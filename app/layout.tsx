@@ -5,14 +5,14 @@ const googleAnalyticsId = "G-K0ZSN5QT8S";
 export const metadata = {
   metadataBase: new URL("https://seller.housingpa.com"),
   title: {
-    default: "SellerAI | Housing Pro Assets",
+    default: "What Property You'd like to sell? | SellerAI",
     template: "%s | SellerAI"
   },
-  description: "SellerAI is part of Housing Pro Assets: AI-assisted seller reports, pricing strategy, listing preparation, seller documents, and broker-led workflows.",
+  description: "List your property step by step with Beny Hen and Quinn & Wilson through an AI-assisted seller workflow.",
   alternates: { canonical: "/" },
   openGraph: {
-    title: "SellerAI | Housing Pro Assets",
-    description: "AI-assisted seller reports, pricing strategy, listing preparation, and broker-led seller workflows.",
+    title: "What Property You'd like to sell? | SellerAI",
+    description: "A step-by-step, broker-supported property listing workflow with Quinn & Wilson.",
     url: "https://seller.housingpa.com/",
     siteName: "SellerAI by Housing Pro Assets",
     type: "website"
