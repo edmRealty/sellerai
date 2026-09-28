@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
+import { sendNoticeToAgent, NOTICE_AGENT_SENT, NOTICE_AGENT_FAILED } from "@/lib/consumer-notice-delivery";
 import path from "path";
 import fs from "fs/promises";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { verifyConsumerNoticeToken } from "@/lib/esign";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getClientId, guardRateLimit, RateLimitError, rateLimitResponse } from "@/lib/api-safety";
 
 export const runtime = "nodejs";
 
-const AGENT_LICENSE = process.env.AGENT_LICENSE || "AB069631";
 
 const parseSignature = (dataUrl: string) => {
   if (!dataUrl?.startsWith("data:image")) return null;
@@ -88,11 +88,11 @@ async function persistConsumerNoticeSignature(params: {
     }
 
     const listingData = (listing.data ?? {}) as Record<string, any>;
-    const paperwork = { ...(listingData.paperwork ?? {}), consumerNoticeStatus: "sent" };
+    const paperwork = { ...(listingData.paperwork ?? {}), consumerNoticeStatus: "signed", consumerNoticeAgentStatus: "awaiting_manual_signature" };
     const { error: listingUpdateError } = await supabaseAdmin
       .from("listings")
       .update({
-        consumer_notice_status: "sent",
+        consumer_notice_status: "signed",
         data: { ...listingData, paperwork }
       })
       .eq("id", params.listingId);
@@ -122,6 +122,15 @@ async function persistConsumerNoticeSignature(params: {
 
 export async function POST(req: Request) {
   try {
+    guardRateLimit({ bucket: "consumer-notice-sign", id: getClientId(req), maxCalls: 5, windowMs: 60_000, blockMs: 60_000 });
+  } catch (error) {
+    if (error instanceof RateLimitError) {
+      const { headers } = rateLimitResponse(error);
+      return NextResponse.json({ success: false, error: "Please wait a minute before trying again." }, { status: 429, headers });
+    }
+    throw error;
+  }
+  try {
     const body = await req.json();
     const token = String(body?.token || "");
     const signerName = String(body?.signerName || "").trim();
@@ -144,7 +153,7 @@ export async function POST(req: Request) {
     // is readable. We only annotate a server-controlled local copy.
     const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     const pages = pdfDoc.getPages();
-    const page = pages[0];
+    const page = pages[pages.length - 1];
     const form = pdfDoc.getForm();
 
     let filledForm = false;
@@ -157,7 +166,6 @@ export async function POST(req: Request) {
       const nameField = findField(["name", "seller"]);
       const addressField = findField(["address", "property"]);
       const dateField = findField(["date", "today"]);
-      const licenseField = findField(["license", "lic", "broker"]);
       const signatureField = findField(["signature", "sign"]);
 
       if (nameField) {
@@ -170,10 +178,6 @@ export async function POST(req: Request) {
       }
       if (dateField) {
         (dateField as any).setText?.(signedDate);
-        filledForm = true;
-      }
-      if (licenseField) {
-        (licenseField as any).setText?.(AGENT_LICENSE);
         filledForm = true;
       }
       if (signatureField) {
@@ -192,33 +196,20 @@ export async function POST(req: Request) {
       }
     } else {
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const { height } = page.getSize();
-      const baseY = Math.max(72, height * 0.12);
-      page.drawText(`Seller: ${name}`, {
-        x: 72,
-        y: baseY + 40,
-        size: 11,
+      // The checked-in two-page notice has printed acknowledgment lines, not fields.
+      const printableName = name.replace(/[^\x20-\x7e]/g, "?");
+      const nameSize = Math.min(10, 156 / Math.max(1, font.widthOfTextAtSize(printableName, 1)));
+      page.drawText(printableName, {
+        x: 236,
+        y: 215,
+        size: nameSize,
         font,
         color: rgb(0, 0, 0)
       });
-      page.drawText(`Property: ${address}`, {
+      page.drawText(signedDate, {
         x: 72,
-        y: baseY + 24,
-        size: 11,
-        font,
-        color: rgb(0, 0, 0)
-      });
-      page.drawText(`Date: ${signedDate}`, {
-        x: 72,
-        y: baseY + 8,
-        size: 11,
-        font,
-        color: rgb(0, 0, 0)
-      });
-      page.drawText(`License: ${AGENT_LICENSE}`, {
-        x: 300,
-        y: baseY + 8,
-        size: 11,
+        y: 215,
+        size: 10,
         font,
         color: rgb(0, 0, 0)
       });
@@ -228,16 +219,18 @@ export async function POST(req: Request) {
     if (signatureBytes) {
       try {
         const signatureImage = await pdfDoc.embedPng(signatureBytes);
-        const { width, height } = signatureImage.scale(0.3);
+        const { width, height } = signatureImage.scaleToFit(156, 24);
         page.drawImage(signatureImage, {
-          x: 72,
-          y: 140,
+          x: 415,
+          y: 214,
           width,
           height
         });
       } catch {
-        // ignore signature if decode fails
+        return NextResponse.json({ success: false, error: "The signature image could not be read. Please sign again." }, { status: 400 });
       }
+    } else {
+      return NextResponse.json({ success: false, error: "Please provide your signature." }, { status: 400 });
     }
 
     const signedPdf = await pdfDoc.save();
@@ -253,54 +246,16 @@ export async function POST(req: Request) {
       pdfBytes: signedPdf
     });
 
-    const smtpHost = process.env.SMTP_HOST || "";
-    const smtpUser = process.env.SMTP_USER || "";
-    const smtpPass = process.env.SMTP_PASS || "";
-    const smtpPort = Number(process.env.SMTP_PORT || 465);
-    const smtpSecure = smtpPort === 465;
-    const resendKey = process.env.RESEND_API_KEY || "";
-    const resendFrom = process.env.RESEND_FROM_EMAIL || "";
-
-    const adminEmail =
-      process.env.ADMIN_EMAIL ||
-      process.env.RESEND_FROM_EMAIL ||
-      process.env.SMTP_USER ||
-      "";
-
-    const recipients = [email, adminEmail].filter(Boolean).join(",");
-
-    const emailSubject = `Signed Consumer Notice: ${address}`;
-    const emailHtml = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h3>Consumer Notice Signed</h3>
-          <p><strong>Seller:</strong> ${name}</p>
-          <p><strong>Property:</strong> ${address}</p>
-          <p><strong>Date:</strong> ${signedDate}</p>
-          <p>The signed Consumer Notice is attached.</p>
-        </div>
-      `;
-
     let emailDelivered = true;
     let emailError = "";
     try {
-      if (resendKey && resendFrom) {
-        const resendResponse = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from: resendFrom,
-            to: recipients.split(",").filter(Boolean),
-            subject: emailSubject,
-            html: emailHtml,
-            attachments: [{ filename: signedFileName, content: Buffer.from(signedPdf).toString("base64") }]
-          })
+      const delivery = await sendNoticeToAgent({ name, email, address, pdfBytes: signedPdf });
+      if (listingId) {
+        const { error } = await supabaseAdmin.from("listing_events").insert({
+          listing_id: listingId, actor_role: "admin", event_type: "cn_agent_email_sent",
+          payload: { messageId: delivery.messageId, recipient: delivery.recipient, agentSignatureStatus: "awaiting_manual_signature", sellerCopySent: false }
         });
-        if (!resendResponse.ok) throw new Error(`Resend failed: ${await resendResponse.text()}`);
-      } else if (smtpHost && smtpUser && smtpPass) {
-        const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
-        await transporter.sendMail({ from: smtpUser, to: recipients, subject: emailSubject, html: emailHtml, attachments: [{ filename: signedFileName, content: Buffer.from(signedPdf) }] });
-      } else {
-        throw new Error("No email delivery provider is configured.");
+        if (error) console.warn("Consumer Notice email receipt persistence failed");
       }
     } catch (error: any) {
       emailDelivered = false;
@@ -311,17 +266,22 @@ export async function POST(req: Request) {
           listing_id: listingId,
           actor_role: "admin",
           event_type: "email_failed",
-          payload: { recipient: "seller_and_admin", error: emailError, context: "consumer_notice_signed" }
+          payload: { recipient: "agent", error: emailError, context: "consumer_notice_signed" }
         });
         if (eventError) console.warn("Consumer Notice email failure event insert failed:", eventError.message);
       }
     }
 
-    return NextResponse.json({ success: true, signed: true, emailDelivered, ...(emailDelivered ? {} : { warning: emailError }) });
+    return NextResponse.json({
+      success: true, signed: true, emailDelivered, agentEmailSent: emailDelivered, sellerCopySent: false,
+      agentSignatureStatus: "awaiting_manual_signature",
+      message: emailDelivered ? NOTICE_AGENT_SENT : NOTICE_AGENT_FAILED,
+      signedPdfBase64: Buffer.from(signedPdf).toString("base64")
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
     console.error("Consumer Notice Sign Error:", error);
     return NextResponse.json(
-      { success: false, error: error?.message || "Failed to sign consumer notice." },
+      { success: false, error: "Could not complete signing. Please try again." },
       { status: 500 }
     );
   }

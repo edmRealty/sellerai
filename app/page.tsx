@@ -261,6 +261,7 @@ type ListingData = {
     officialOwner: boolean | null;
     mailingAddress: string;
     brokerFeeConsent: boolean | null;
+    brokerFeePercent?: number;
     dualAgencyConsent: boolean | null;
     builtBefore1978: "yes" | "no" | "";
     consumerNoticeStatus: "not_sent" | "requested" | "sent" | "signed";
@@ -494,6 +495,7 @@ export default function Home() {
   const [reportSending, setReportSending] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const [noticeRecoveryPdf, setNoticeRecoveryPdf] = useState<string | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
   const [consumerPdfExpanded, setConsumerPdfExpanded] = useState(false);
@@ -669,7 +671,7 @@ export default function Home() {
     setStep("listing-intro");
     addMessage(
       "assistant",
-      "Great! Your CN is received. Now let’s move on to preparing your Listing Agreement."
+      "Your Consumer Notice is signed. You'll receive the completed copy after the agent signs."
     );
     window.history.replaceState({}, "", window.location.pathname);
   }, [data.address]);
@@ -1813,6 +1815,7 @@ export default function Home() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        delivery: "inline",
         signerEmail: data.seller.email,
         signerName: data.seller.name || "Seller",
         address: data.address,
@@ -1875,8 +1878,12 @@ export default function Home() {
         paperwork: { ...prev.paperwork, consumerNoticeStatus: "signed" }
       }));
       addMessage("user", "I reviewed and signed the Consumer Notice.");
-      addMessage("assistant", "Consumer Notice is signed. Now we can continue with the licensed-agent listing workflow.");
-      setFeedback(payload?.warning ? `Signed. Email delivery warning: ${payload.warning}` : "Consumer Notice signed.");
+      const noticeMessage = payload.agentEmailSent
+        ? "Your Consumer Notice is signed and sent to the agent. You'll receive a copy after the agent signs."
+        : "Your Consumer Notice is signed, but we couldn't send it to the agent. Please download your signed copy and contact ben@housingpa.com.";
+      setNoticeRecoveryPdf(!payload.agentEmailSent && payload.signedPdfBase64 ? payload.signedPdfBase64 : null);
+      addMessage("assistant", noticeMessage);
+      setFeedback(noticeMessage);
       setStep("listing-intro");
     } catch (error: any) {
       setConsumerNoticeError(String(error?.message || "Could not sign Consumer Notice. Please try again."));
@@ -2236,7 +2243,7 @@ export default function Home() {
       setFeedback("Please add your mailing address.");
       return;
     }
-    if (data.paperwork.brokerFeeConsent === null) {
+    if (data.paperwork.brokerFeeConsent === null || data.paperwork.brokerFeePercent !== 5) {
       setFeedback("Please confirm the broker fee.");
       return;
     }
@@ -4000,7 +4007,7 @@ export default function Home() {
                 Great! Your CN is received. Now let’s move on to preparing your Listing Agreement.
               </p>
               <div className="step-explainer">
-                It is an exclusive agreement for a period of 6 months, with a total broker’s fee of only 1%.
+                It is an exclusive agreement for a period of 6 months, with a total broker’s fee of 5%.
               </div>
               <p className="summary-text">
                 We’ll confirm the details, then send it to your Agent for manual review and eSign preparation.
@@ -4062,18 +4069,18 @@ export default function Home() {
                 </label>
               </div>
               <div className="summary-text" style={{ marginTop: 12 }}>
-                Broker’s fee at settlement: 1%
+                Broker’s fee at settlement: 5%
               </div>
               <div className="option-grid" style={{ marginTop: 8 }}>
                 <button
                   type="button"
                   className={
-                    data.paperwork.brokerFeeConsent === true ? "option-chip active" : "option-chip"
+                    data.paperwork.brokerFeeConsent === true && data.paperwork.brokerFeePercent === 5 ? "option-chip active" : "option-chip"
                   }
                   onClick={() =>
                     setData((prev) => ({
                       ...prev,
-                      paperwork: { ...prev.paperwork, brokerFeeConsent: true }
+                      paperwork: { ...prev.paperwork, brokerFeeConsent: true, brokerFeePercent: 5 }
                     }))
                   }
                 >
@@ -4082,12 +4089,12 @@ export default function Home() {
                 <button
                   type="button"
                   className={
-                    data.paperwork.brokerFeeConsent === false ? "option-chip active" : "option-chip"
+                    data.paperwork.brokerFeeConsent === false && data.paperwork.brokerFeePercent === 5 ? "option-chip active" : "option-chip"
                   }
                   onClick={() =>
                     setData((prev) => ({
                       ...prev,
-                      paperwork: { ...prev.paperwork, brokerFeeConsent: false }
+                      paperwork: { ...prev.paperwork, brokerFeeConsent: false, brokerFeePercent: 5 }
                     }))
                   }
                 >
@@ -4104,7 +4111,7 @@ export default function Home() {
                   onClick={() =>
                     pushInfoPrompt(
                       "How does the broker fee work?",
-                      "The total broker fee for this SellerAI listing path is only 1%. You still receive broker representation while handling a few simple on-site tasks yourself."
+                      "The total broker fee for this SellerAI listing path is 5%, payable at settlement."
                     )
                   }
                 >
@@ -4540,6 +4547,7 @@ export default function Home() {
                 </div>
               </div>
               {feedback && <p className="summary-text chat-feedback">{feedback}</p>}
+              {noticeRecoveryPdf && <a className="chat-feedback" href={`data:application/pdf;base64,${noticeRecoveryPdf}`} download="Seller-Signed-Consumer-Notice.pdf">Download seller-signed notice (awaiting agent signature)</a>}
 
               <div className="chat-container">
                 <div className="messages-area">
@@ -4661,7 +4669,7 @@ export default function Home() {
       <Modal
         isOpen={listingAgreementExplainerOpen}
         onClose={() => setListingAgreementExplainerOpen(false)}
-        title="How the 1% listing agreement works"
+        title="How the 5% listing agreement works"
       >
         <p className="summary-text">
           You will take care of a few basic things, such as installing your own lockbox or yard sign if elected, but you will still be represented by our broker. This lets us serve the entire state and save money for our clients.

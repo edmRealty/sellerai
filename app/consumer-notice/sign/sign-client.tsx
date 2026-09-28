@@ -26,7 +26,8 @@ export default function ConsumerNoticeSignClient() {
   const [hasSignature, setHasSignature] = useState(false);
   const [signed, setSigned] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [redirecting, setRedirecting] = useState(false);
+  const [deliveryMessage, setDeliveryMessage] = useState("");
+  const [recoveryPdf, setRecoveryPdf] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,12 +198,10 @@ export default function ConsumerNoticeSignClient() {
         throw new Error(data?.error || "Failed to sign.");
       }
       setSigned(true);
-      setRedirecting(true);
-      setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.href = returnUrl;
-        }
-      }, 800);
+      setDeliveryMessage(data.agentEmailSent
+        ? "Your Consumer Notice is signed and sent to the agent. You'll receive a copy after the agent signs."
+        : "Your Consumer Notice is signed, but we couldn't send it to the agent. Please download your signed copy and contact ben@housingpa.com.");
+      setRecoveryPdf(!data.agentEmailSent && data.signedPdfBase64 ? data.signedPdfBase64 : null);
     } catch (err: any) {
       setError(err?.message || "Signing failed.");
     } finally {
@@ -242,6 +241,8 @@ export default function ConsumerNoticeSignClient() {
           <div className="sign-form">
             {loading && <p>Loading signing details...</p>}
             {!loading && error && <p className="sign-error">{error}</p>}
+            {deliveryMessage && <p role="status">{deliveryMessage}</p>}
+            {recoveryPdf && <a href={`data:application/pdf;base64,${recoveryPdf}`} download="Seller-Signed-Consumer-Notice.pdf">Download seller-signed notice (awaiting agent signature)</a>}
             {!loading && payload && (
               <>
                 <div className="sign-field">
@@ -296,9 +297,7 @@ export default function ConsumerNoticeSignClient() {
                     {signing
                       ? "Signing..."
                       : signed
-                        ? redirecting
-                          ? "Signed — returning..."
-                          : "Signed"
+                        ? "Signed"
                         : "Sign Consumer Notice"}
                   </button>
                   {signed && (

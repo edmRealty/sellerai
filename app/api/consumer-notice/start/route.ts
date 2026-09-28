@@ -43,6 +43,9 @@ export async function POST(req: Request) {
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.trim() || "http://localhost:3000";
     const signUrl = `${baseUrl}/consumer-notice/sign?token=${encodeURIComponent(token)}`;
+    if (body?.delivery === "inline") {
+      return NextResponse.json({ success: true, signUrl, emailSent: false }, { headers: { "Cache-Control": "no-store" } });
+    }
 
     const smtpHost = process.env.SMTP_HOST || "";
     const smtpUser = process.env.SMTP_USER || "";

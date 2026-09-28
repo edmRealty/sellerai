@@ -270,7 +270,7 @@ export function HelpAssistant() {
                                 </div>
                                 <div style="padding: 20px; text-align: center;">
                                     <h3 style="color: #2c3e50; margin: 0 0 5px; font-size: 1em;">🚫 We Do Not Sell Your Data</h3>
-                                    <p style="color: #666; font-size: 0.85em; margin: 0;">We don't run a "lead farm". We earn from the 1% listing fee, not by selling your number.</p>
+                                    <p style="color: #666; font-size: 0.85em; margin: 0;">Our listing fee is 5%, payable at settlement. We do not sell your phone number.</p>
                                 </div>
                             </div>
                         ` }} />

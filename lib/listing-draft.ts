@@ -1,7 +1,7 @@
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 const draftFields = ['address', 'propertyLookupVersion', 'propertyPhoto', 'census', 'details', 'valuation', 'addons', 'acknowledgements', 'seller', 'finalPrice', 'photos', 'photosDeferred', 'description'] as const;
-const paperworkFields = ['ownerRole', 'officialOwner', 'mailingAddress', 'brokerFeeConsent', 'dualAgencyConsent', 'builtBefore1978', 'isMultiFamily', 'extraUploads'] as const;
+const paperworkFields = ['ownerRole', 'officialOwner', 'mailingAddress', 'brokerFeeConsent', 'brokerFeePercent', 'dualAgencyConsent', 'builtBefore1978', 'isMultiFamily', 'extraUploads'] as const;
 
 export function buildListingDraft(input: JsonObject, existing: {
   data?: unknown;
