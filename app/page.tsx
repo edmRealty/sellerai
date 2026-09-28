@@ -140,7 +140,7 @@ const hashString = (input: string) => {
 const VALUATION_COOLDOWN_MS = 45_000;
 const MIN_VALUATION_MS = 30_000;
 const LOCAL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PROPERTY_LOOKUP_CACHE_VERSION = "v4-trusted-property-sources";
+const PROPERTY_LOOKUP_CACHE_VERSION = "v5-philadelphia-opa";
 
 type AddressSuggestion = {
   id: string;
@@ -390,14 +390,7 @@ const hydrateListingData = (loaded: Partial<ListingData> | null | undefined) => 
     return {
       ...merged,
       propertyLookupVersion: PROPERTY_LOOKUP_CACHE_VERSION,
-      details: {
-        ...merged.details,
-        bedrooms: 0,
-        bathrooms: 0,
-        squareFeet: 0,
-        yearBuilt: 0,
-        features: []
-      }
+      details: merged.details
     };
   }
 
@@ -495,6 +488,40 @@ export default function Home() {
   const [reportSending, setReportSending] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(252);
+  const [desktopSidebarClosed, setDesktopSidebarClosed] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sellerInfoAttempted, setSellerInfoAttempted] = useState(false);
+  const sellerNameRef = useRef<HTMLInputElement>(null);
+  const sellerEmailRef = useRef<HTMLInputElement>(null);
+  const ownerAnswerRef = useRef<HTMLButtonElement>(null);
+  const enrichedAddressRef = useRef("");
+
+  useEffect(() => {
+    const savedWidth = Number(localStorage.getItem("seller_sidebar_width"));
+    if (savedWidth >= 220 && savedWidth <= 440) setSidebarWidth(savedWidth);
+    setDesktopSidebarClosed(localStorage.getItem("seller_sidebar_closed") === "true");
+  }, []);
+
+  useEffect(() => {
+    if (!data.address || enrichedAddressRef.current === data.address ||
+      [data.details.bedrooms, data.details.bathrooms, data.details.squareFeet, data.details.yearBuilt].every(value => value > 0)) return;
+    enrichedAddressRef.current = data.address;
+    const address = data.address;
+    fetch("/api/property", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }) })
+      .then(response => response.ok ? response.json() : null)
+      .then(result => {
+        if (!result?.details) return;
+        setData(prev => {
+          if (prev.address !== address) return prev;
+          const details = { ...prev.details };
+          for (const key of ["bedrooms", "bathrooms", "squareFeet", "yearBuilt"] as const) {
+            if (!details[key] && result.details[key] > 0) details[key] = result.details[key];
+          }
+          return { ...prev, details };
+        });
+      }).catch(() => undefined);
+  }, [data.address]);
   const [noticeRecoveryPdf, setNoticeRecoveryPdf] = useState<string | null>(null);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
@@ -592,21 +619,10 @@ export default function Home() {
       try {
         const parsed = JSON.parse(rawSession);
         const loadedData = hydrateListingData(parsed?.data);
-        const isLegacyLookup =
-          parsed?.data?.address &&
-          parsed?.data?.propertyLookupVersion !== PROPERTY_LOOKUP_CACHE_VERSION &&
-          !parsed?.data?.seller?.email &&
-          !parsed?.data?.valuation?.average;
         if (parsed?.data) setData(loadedData);
-        if (isLegacyLookup) {
-          setMessages([]);
-          setView("chat");
-          setStep("intro");
-        } else {
-          if (parsed?.messages) setMessages(parsed.messages);
-          if (parsed?.view) setView(parsed.view);
-          if (parsed?.step) setStep(parsed.step);
-        }
+        if (parsed?.messages) setMessages(parsed.messages);
+        if (parsed?.view) setView(parsed.view);
+        if (parsed?.step) setStep(parsed.step);
         if (parsed?.addressInput) setAddressInput(parsed.addressInput);
       } catch {
         // ignore
@@ -2016,19 +2032,25 @@ export default function Home() {
   };
 
   const handleAcknowledgementsContinue = async () => {
+    setSellerInfoAttempted(true);
     const officialOwner = data.paperwork.officialOwner;
     if (!data.seller.name.trim()) {
-      setFeedback("Please add your full name.");
+      sellerNameRef.current?.focus();
+      sellerNameRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
       return;
     }
-    if (!data.seller.email.trim() || !data.seller.email.includes("@")) {
-      setFeedback("Please add a valid email.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.seller.email.trim())) {
+      sellerEmailRef.current?.focus();
+      sellerEmailRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
       return;
     }
     if (typeof officialOwner !== "boolean") {
-      setFeedback("Please answer whether you are the official owner.");
+      ownerAnswerRef.current?.focus();
+      ownerAnswerRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
       return;
     }
+    setFeedback(null);
+    setSellerInfoAttempted(false);
 
     addMessage(
       "user",
@@ -3355,6 +3377,10 @@ export default function Home() {
                     Full Name
                     <input
                       className="input"
+                      ref={sellerNameRef}
+                      autoComplete="name"
+                      aria-invalid={sellerInfoAttempted && !data.seller.name.trim()}
+                      aria-describedby="seller-name-error"
                       value={data.seller.name}
                       placeholder="Seller name"
                       onChange={(e) =>
@@ -3364,12 +3390,16 @@ export default function Home() {
                         }))
                       }
                     />
+                    {sellerInfoAttempted && !data.seller.name.trim() && <span id="seller-name-error" role="alert" className="field-error">Enter your full name to continue.</span>}
                   </label>
                   <label className="seller-info-field">
                     Email
                     <input
                       className="input"
                       type="email"
+                      ref={sellerEmailRef}
+                      autoComplete="email"
+                      aria-describedby="seller-email-error"
                       value={data.seller.email}
                       placeholder="name@email.com"
                       onChange={(e) =>
@@ -3379,6 +3409,7 @@ export default function Home() {
                         }))
                       }
                     />
+                    {sellerInfoAttempted && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.seller.email.trim()) && <span id="seller-email-error" role="alert" className="field-error">Enter a valid email to continue.</span>}
                   </label>
                   <label className="seller-info-field">
                     Phone
@@ -3404,6 +3435,7 @@ export default function Home() {
                     <button
                       type="button"
                       className={data.paperwork.officialOwner === true ? "owner-toggle active" : "owner-toggle"}
+                      ref={ownerAnswerRef}
                       onClick={() =>
                         setData((prev) => ({
                           ...prev,
@@ -3431,6 +3463,7 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
+                {sellerInfoAttempted && typeof data.paperwork.officialOwner !== "boolean" && <p role="alert" className="field-error">Choose Yes or No for property ownership.</p>}
                 <div className="ack-list">
                   <label className="checkbox-row">
                     <input
@@ -3487,9 +3520,8 @@ export default function Home() {
                   type="button"
                   className="btn btn-primary"
                   onClick={handleAcknowledgementsContinue}
-                  disabled={loading}
                 >
-                  {loading ? "Opening..." : "Continue to Consumer Notice"}
+                  Continue to Consumer Notice
                 </button>
                 <button
                   type="button"
@@ -4397,12 +4429,37 @@ export default function Home() {
   const hasActiveAddress = data.address.trim().length > 0;
 
   const handleRefreshApp = () => {
-    router.refresh();
-    setFeedback("Refreshed.");
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ data, messages, view, step, addressInput }));
+      localStorage.setItem(LISTING_KEY, JSON.stringify(data));
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(listingHistory));
+    } catch {
+      setRefreshing(false);
+      setFeedback("Your browser couldn't save your latest changes. Refresh was cancelled to protect your work.");
+      return;
+    }
+    window.location.reload();
+  };
+
+  const resizeSidebar = (width: number) => {
+    const nextWidth = Math.min(440, Math.max(220, width));
+    setSidebarWidth(nextWidth);
+    localStorage.setItem("seller_sidebar_width", String(nextWidth));
+  };
+  const toggleProperties = () => {
+    if (window.matchMedia("(min-width: 1024px)").matches) {
+      setDesktopSidebarClosed(closed => {
+        localStorage.setItem("seller_sidebar_closed", String(!closed));
+        return !closed;
+      });
+    } else setPropertiesOpen(open => !open);
+    setHelpMenuOpen(false);
   };
 
   return (
-    <div className={`app-shell seller-app ${propertiesOpen ? "properties-open" : ""}`}>
+    <div className={`app-shell seller-app ${propertiesOpen ? "properties-open" : ""} ${desktopSidebarClosed ? "desktop-sidebar-closed" : ""}`} style={{ "--seller-sidebar-width": `${desktopSidebarClosed ? 0 : sidebarWidth}px` } as React.CSSProperties}>
       {propertiesOpen && <button className="properties-backdrop" aria-label="Close properties" onClick={() => setPropertiesOpen(false)} />}
       <aside className="seller-address-sidebar" aria-label="Saved properties">
         <div className="seller-address-sidebar-header">
@@ -4414,6 +4471,7 @@ export default function Home() {
             New
           </button>
           <button type="button" className="properties-close" aria-label="Close properties" onClick={() => setPropertiesOpen(false)}><X size={20} /></button>
+          <button type="button" className="desktop-sidebar-toggle" title="Collapse sidebar" aria-label="Collapse sidebar" onClick={toggleProperties}><PanelLeft size={18} /></button>
         </div>
         <div className="seller-address-list">
           {hasActiveAddress && !addressSidebarItems.some((item) => item.address === data.address) && (
@@ -4445,14 +4503,20 @@ export default function Home() {
             <div className="seller-address-empty">Your property addresses will appear here.</div>
           )}
         </div>
+        <div className="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-valuemin={220} aria-valuemax={440} aria-valuenow={sidebarWidth} tabIndex={0}
+          onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
+          onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeSidebar(event.clientX); }}
+          onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+          onDoubleClick={() => resizeSidebar(252)}
+          onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); resizeSidebar(sidebarWidth + (event.key === "ArrowRight" ? 20 : -20)); } }} />
       </aside>
       <div className="seller-help-menu" ref={helpMenuRef}>
-        <button type="button" className="seller-properties-trigger" title="Saved properties" aria-label="Saved properties" aria-expanded={propertiesOpen} onClick={() => { setPropertiesOpen((open) => !open); setHelpMenuOpen(false); }}><PanelLeft size={20} /></button>
+        <button type="button" className="seller-properties-trigger" title="Saved properties" aria-label="Saved properties" onClick={toggleProperties}><PanelLeft size={20} /></button>
         <button type="button" className="seller-sign-in-link" onClick={() => setAuthPromptOpen(true)}>
           Sign in / sign up
         </button>
-        <button type="button" className="seller-refresh-trigger" onClick={handleRefreshApp} aria-label="Refresh" title="Refresh">
-          <RefreshCw size={16} strokeWidth={2.4} />
+        <button type="button" className="seller-refresh-trigger" onClick={handleRefreshApp} disabled={refreshing} aria-label={refreshing ? "Refreshing" : "Refresh"} title="Refresh">
+          <RefreshCw className={refreshing ? "refresh-spinning" : ""} size={16} strokeWidth={2.4} />
         </button>
         <button type="button" className="seller-theme-trigger" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"}>
           <Flashlight size={15} strokeWidth={2.2} />

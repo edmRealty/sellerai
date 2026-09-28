@@ -3202,6 +3202,30 @@ body:has(.seller-app) {
   display: none;
 }
 
+.field-error { color: var(--danger); font-size: 13px; line-height: 1.4; }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+.refresh-spinning { animation: refresh-spin 0.8s linear infinite; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+.sidebar-resizer, .desktop-sidebar-toggle { display: none; }
+
+@media (min-width: 1024px) {
+  .seller-app .main { min-width: 0; }
+  .seller-app.desktop-sidebar-closed .seller-address-sidebar { display: none; }
+  .seller-app .seller-properties-trigger, .desktop-sidebar-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; flex: 0 0 36px; padding: 0;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  .seller-address-sidebar-header { gap: 6px; }
+  .seller-address-sidebar-header > div { min-width: 0; flex: 1; }
+  .sidebar-resizer {
+    display: block; position: absolute; top: 0; bottom: 0; right: -4px;
+    width: 8px; cursor: col-resize; touch-action: none;
+  }
+  .sidebar-resizer:hover, .sidebar-resizer:focus-visible { background: var(--brand-soft); outline: 0; }
+}
+
 .search-submit svg {
   display: none;
 }

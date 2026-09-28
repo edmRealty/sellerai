@@ -257,6 +257,7 @@ async function fetchShovels(address: string): Promise<PropertySourceResult> {
 export async function enrichPropertyFromTrustedSources(address: string, lat?: number, lon?: number): Promise<PropertyEnrichment> {
   const parts = parseAddress(address);
   const sources = await Promise.all([
+    fetchPhiladelphiaOPA(address),
     fetchRentCast(address),
     fetchRealie(address, parts),
     fetchPlacekey(parts, lat, lon),
@@ -276,4 +277,27 @@ export async function enrichPropertyFromTrustedSources(address: string, lat?: nu
     };
   }, {});
   return { details, sources };
+}
+
+export async function fetchPhiladelphiaOPA(address: string): Promise<PropertySourceResult> {
+  const source = "Philadelphia OPA";
+  const parts = parseAddress(address);
+  if (parts.city.toLowerCase() !== "philadelphia" || parts.state !== "PA") return { source, status: "not_found" };
+  const abbreviations: Record<string, string> = { AVENUE: "AVE", STREET: "ST", ROAD: "RD", BOULEVARD: "BLVD", DRIVE: "DR", LANE: "LN", PLACE: "PL", COURT: "CT", TERRACE: "TER", EAST: "E", WEST: "W", NORTH: "N", SOUTH: "S" };
+  const street = parts.street.toUpperCase().replace(/\./g, "").replace(/\b(AVENUE|STREET|ROAD|BOULEVARD|DRIVE|LANE|PLACE|COURT|TERRACE|EAST|WEST|NORTH|SOUTH)\b/g, word => abbreviations[word]).replace(/\s+/g, " ").trim();
+  // Exact street and ZIP match only; ambiguous parcels are left for review.
+  const literal = street.replace(/'/g, "''");
+  const query = `SELECT location,zip_code,number_of_bedrooms,number_of_bathrooms,total_livable_area,year_built,category_code_description,parcel_number FROM opa_properties_public WHERE location = '${literal}' AND zip_code = '${parts.postalCode}' LIMIT 2`;
+  try {
+    const response = await fetchWithTimeout(`https://phl.carto.com/api/v2/sql?${new URLSearchParams({ q: query })}`);
+    if (!response.ok) return { source, status: "unavailable" };
+    const payload = await response.json();
+    if (payload.rows?.length !== 1) return { source, status: "not_found" };
+    const record = payload.rows[0];
+    return { source, status: "available", details: {
+      propertyType: inferPropertyType(record.category_code_description),
+      bedrooms: positiveNumber(record.number_of_bedrooms), bathrooms: positiveNumber(record.number_of_bathrooms),
+      squareFeet: positiveNumber(record.total_livable_area), yearBuilt: positiveNumber(record.year_built)
+    }, identifiers: { parcelId: String(record.parcel_number) } };
+  } catch { return { source, status: "unavailable" }; }
 }

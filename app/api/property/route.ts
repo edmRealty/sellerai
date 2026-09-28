@@ -36,7 +36,7 @@ const OPENAI_MAX = Number(process.env.AI_OPENAI_MAX_CALLS) || 6;
 const GEMINI_MAX = Number(process.env.AI_GEMINI_MAX_CALLS) || 6;
 const MANUS_MAX = Number(process.env.AI_MANUS_MAX_CALLS) || 6;
 const CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS) || 24 * 60 * 60 * 1000;
-const PROPERTY_CACHE_VERSION = "v4-trusted-property-sources";
+const PROPERTY_CACHE_VERSION = "v5-philadelphia-opa";
 
 const FEATURE_OPTIONS = [
   "Finished basement",
@@ -694,7 +694,7 @@ export async function POST(req: Request) {
       enrichPropertyFromTrustedSources(formattedAddress, coords.lat, coords.lon)
     ]);
     let aiDetails = null;
-    if (!AI_FREE_MODE) {
+    if (!AI_FREE_MODE && !propertyEnrichment.details.propertyType) {
       aiDetails = await fetchDetailsFromAI(formattedAddress, inferredTypes, clientId);
     }
     const fallback = fallbackDetails(formattedAddress, inferredTypes);
