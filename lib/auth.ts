@@ -19,7 +19,7 @@ export type AuthContext = {
 export async function getAuthContext(): Promise<
     { configured: false; auth: null } | { configured: true; auth: AuthContext | null }
 > {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     if (!supabase) return { configured: false, auth: null };
 
     const { data, error } = await supabase.auth.getUser();

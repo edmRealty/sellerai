@@ -116,8 +116,8 @@ export async function pullServerPaperworkIntoLocal(): Promise<void> {
         const res = await fetch(`/api/listings/current${listingId ? `?listingId=${listingId}` : ""}`);
         if (!res.ok) return;
         const payload = await res.json();
-        const serverPaperwork = payload?.listing?.data?.paperwork;
-        if (!serverPaperwork) return;
+        const serverListing = payload?.listing;
+        if (!serverListing) return;
         if (payload?.listing?.id) {
             window.localStorage.setItem(LISTING_SERVER_ID_KEY, payload.listing.id);
         }
@@ -129,14 +129,14 @@ export async function pullServerPaperworkIntoLocal(): Promise<void> {
 
         let changed = false;
         if (
-            serverPaperwork.consumerNoticeStatus === "signed" &&
+            serverListing.consumer_notice_status === "signed" &&
             local.paperwork.consumerNoticeStatus !== "signed"
         ) {
             local.paperwork.consumerNoticeStatus = "signed";
             changed = true;
         }
         if (
-            serverPaperwork.listingAgreementStatus === "signed" &&
+            serverListing.listing_agreement_status === "signed" &&
             local.paperwork.listingAgreementStatus !== "signed"
         ) {
             local.paperwork.listingAgreementStatus = "signed";

@@ -14,7 +14,8 @@ const requiresReadiness = (status: ListingStatus) => status === "approved" || st
  * client-side shortcut: the current state and readiness data are rechecked
  * here immediately before the database update.
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   try {
     guardRateLimit({ bucket: "agent-listing-status", id: getClientId(req), maxCalls: 20, windowMs: 60_000, blockMs: 60_000 });
   } catch (error) {

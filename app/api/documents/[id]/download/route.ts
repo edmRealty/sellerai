@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * Authorizes the caller through listing_documents RLS, then redirects to a
  * short-lived Storage URL. Raw bucket paths never leave the server response.
  */
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const ctx = await getAuthContext();
   if (!ctx.configured) return NextResponse.json({ configured: false, error: "not configured" }, { status: 503 });
   if (!ctx.auth) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });

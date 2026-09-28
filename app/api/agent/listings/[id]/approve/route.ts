@@ -17,7 +17,8 @@ type ApproveAction = 'approve-cn' | 'approve-listing';
  * audit event traceable to the approving agent. The seller app picks the
  * change up via its wait-step polling.
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
+    const params = await context.params;
     try {
         guardRateLimit({ bucket: 'agent-approval', id: getClientId(req), maxCalls: 20, windowMs: 60_000, blockMs: 60_000 });
     } catch (error) {

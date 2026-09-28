@@ -68,7 +68,6 @@ export function computeReadiness(
 ): ReadinessItem[] {
   const data = listing.data ?? {};
   const acknowledgements = data.acknowledgements ?? {};
-  const paperwork = data.paperwork ?? {};
   const photosDeferred = data.photosDeferred === true;
   const uploadedPhoto = documents.some((document) => document.kind === "photo" && document.status === "uploaded");
   const price = Number(listing.working_price ?? data.finalPrice);
@@ -95,13 +94,13 @@ export function computeReadiness(
     {
       key: "consumer_notice",
       label: "Consumer Notice",
-      ok: (listing.consumer_notice_status ?? paperwork.consumerNoticeStatus) === "signed",
+      ok: listing.consumer_notice_status === "signed",
       detail: "The Consumer Notice must be signed."
     },
     {
       key: "listing_agreement",
       label: "Listing Agreement",
-      ok: (listing.listing_agreement_status ?? paperwork.listingAgreementStatus) === "signed",
+      ok: listing.listing_agreement_status === "signed",
       detail: "The Listing Agreement must be signed."
     },
     {

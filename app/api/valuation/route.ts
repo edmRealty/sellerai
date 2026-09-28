@@ -5,7 +5,7 @@ import {
     MAINTENANCE_MESSAGE,
     isAiServiceDownError,
     isMaintenanceError,
-    notifyAndThrowMaintenance
+    notifyAdminAiIssue
 } from '@/lib/ai-service-health';
 
 export const runtime = "nodejs";
@@ -20,8 +20,11 @@ const manusApiUrl =
     process.env.MANUS_API_URL ||
     (manusBaseUrl ? `${manusBaseUrl.replace(/\/$/, "")}/chat/completions` : '');
 const manusModel = process.env.MANUS_MODEL || "manus-1";
+const grokApiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY || "";
+const grokApiUrl = process.env.XAI_API_URL || process.env.GROK_API_URL || "https://api.x.ai/v1/chat/completions";
+const grokModel = process.env.XAI_MODEL || process.env.GROK_MODEL || "grok-4.7";
 const genAI = new GoogleGenerativeAI(geminiApiKey);
-const geminiModel = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const geminiModel = process.env.GEMINI_MODEL || process.env.GEMINI_BACKUP_MODEL || "gemini-1.5-flash";
 const AI_FREE_MODE = String(process.env.AI_FREE_MODE || "").toLowerCase() === "true";
 const RATE_WINDOW_MS = Number(process.env.AI_RATE_WINDOW_MS) || 60_000;
 const RATE_BLOCK_MS = Number(process.env.AI_RATE_BLOCK_MS) || 5 * 60_000;
@@ -29,8 +32,10 @@ const VALUATION_MAX = Number(process.env.AI_VALUATION_MAX_CALLS) || 6;
 const OPENAI_MAX = Number(process.env.AI_OPENAI_MAX_CALLS) || 6;
 const GEMINI_MAX = Number(process.env.AI_GEMINI_MAX_CALLS) || 6;
 const MANUS_MAX = Number(process.env.AI_MANUS_MAX_CALLS) || 6;
+const GROK_MAX = Number(process.env.AI_GROK_MAX_CALLS) || 6;
 const CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS) || 24 * 60 * 60 * 1000;
-const CACHE_VERSION = "2026-05-14-comps-range-3";
+const AI_PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 10_000;
+const CACHE_VERSION = "2026-09-27-grok-features-consumer-notice-1";
 
 // --- Deterministic Helpers (Fallback Layer) ---
 
@@ -173,6 +178,18 @@ function generateSmartMockPrice(address: string, details: PropertyDetails = {}, 
             else if (f.includes('deck') || f.includes('patio')) {
                 rawPrice += 5000;
             }
+            else if (f.includes('recently renovated')) {
+                rawPrice += 25000;
+            }
+            else if (f.includes('updated kitchen')) {
+                rawPrice += 18000;
+            }
+            else if (f.includes('updated bathroom')) {
+                rawPrice += 12000;
+            }
+            else if (f.includes('hardwood') || f.includes('wooden floor')) {
+                rawPrice += 7000;
+            }
             else if (f.includes('garage')) {
                 rawPrice += f.includes('detached') ? 15000 : 12000;
             } else if (f.includes('basement') && f.includes('finished')) {
@@ -209,6 +226,28 @@ function generateSmartMockPrice(address: string, details: PropertyDetails = {}, 
 
     // Round to nearest 1000 for clean look
     return Math.round(rawPrice / 1000) * 1000;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AI_PROVIDER_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function withProviderTimeout<T>(promise: Promise<T>, provider: string, timeoutMs = AI_PROVIDER_TIMEOUT_MS) {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${provider} request timed out.`)), timeoutMs);
+        });
+        return await Promise.race([promise, timeout]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 
@@ -548,7 +587,7 @@ Return ONLY JSON in this schema:
                 }
                 try {
                     const model = genAI.getGenerativeModel({ model: geminiModel });
-                    const result = await model.generateContent(prompt);
+                    const result = await withProviderTimeout(model.generateContent(prompt), "Gemini");
                     const response = await result.response;
                     const text = response.text();
                     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -557,7 +596,7 @@ Return ONLY JSON in this schema:
                 } catch (error) {
                     console.error("Gemini AI Error:", error);
                     if (isAiServiceDownError(error)) {
-                        await notifyAndThrowMaintenance({
+                        await notifyAdminAiIssue({
                             provider: "Gemini",
                             route: "POST /api/valuation",
                             address,
@@ -591,7 +630,7 @@ Return ONLY JSON in this schema:
                     return null;
                 }
                 try {
-                    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                    const response = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
                         headers: {
                             "Authorization": `Bearer ${openaiApiKey}`,
@@ -627,7 +666,7 @@ Return ONLY JSON in this schema:
                 } catch (error) {
                     console.error("OpenAI Error:", error);
                     if (isAiServiceDownError(error)) {
-                        await notifyAndThrowMaintenance({
+                        await notifyAdminAiIssue({
                             provider: "OpenAI",
                             route: "POST /api/valuation",
                             address,
@@ -635,6 +674,74 @@ Return ONLY JSON in this schema:
                         });
                     }
                     warnings.push("OpenAI valuation failed.");
+                    return null;
+                }
+            };
+
+            const callGrok = async (prompt: string) => {
+                if (AI_FREE_MODE) {
+                    warnings.push("AI disabled in free mode.");
+                    return null;
+                }
+                if (!grokApiKey || !grokModel) {
+                    warnings.push("Grok API key or model missing.");
+                    return null;
+                }
+                try {
+                    guardRateLimit({
+                        bucket: "grok",
+                        id: clientId,
+                        maxCalls: GROK_MAX,
+                        windowMs: RATE_WINDOW_MS,
+                        blockMs: RATE_BLOCK_MS
+                    });
+                } catch (error) {
+                    warnings.push("Grok rate limit reached.");
+                    return null;
+                }
+                try {
+                    const response = await fetchWithTimeout(grokApiUrl, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${grokApiKey}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            model: grokModel,
+                            temperature: 0.2,
+                            response_format: { type: "json_object" },
+                            messages: [
+                                { role: "system", content: "Return only valid JSON. Use the requested schema." },
+                                { role: "user", content: prompt }
+                            ]
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`Grok error: ${errText}`);
+                    }
+
+                    const data = await response.json();
+                    const content =
+                        data?.choices?.[0]?.message?.content ||
+                        data?.output ||
+                        data?.content ||
+                        '';
+                    const jsonMatch = content.match(/\{[\s\S]*\}/);
+                    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+                    return JSON.parse(jsonStr);
+                } catch (error) {
+                    console.error("Grok AI Error:", error);
+                    if (isAiServiceDownError(error)) {
+                        await notifyAdminAiIssue({
+                            provider: "Grok",
+                            route: "POST /api/valuation",
+                            address,
+                            error
+                        });
+                    }
+                    warnings.push("Grok valuation failed.");
                     return null;
                 }
             };
@@ -660,7 +767,7 @@ Return ONLY JSON in this schema:
                     return null;
                 }
                 try {
-                    const response = await fetch(manusApiUrl, {
+                    const response = await fetchWithTimeout(manusApiUrl, {
                         method: "POST",
                         headers: {
                             "Authorization": `Bearer ${manusApiKey}`,
@@ -694,7 +801,7 @@ Return ONLY JSON in this schema:
                 } catch (error) {
                     console.error("Manus AI Error:", error);
                     if (isAiServiceDownError(error)) {
-                        await notifyAndThrowMaintenance({
+                        await notifyAdminAiIssue({
                             provider: "Manus",
                             route: "POST /api/valuation",
                             address,
@@ -711,19 +818,22 @@ Return ONLY JSON in this schema:
                 propertyType === "lot" ? lotPrompt :
                 compsPrompt;
 
-            const [geminiResult, openaiResult, manusResult] = await Promise.all([
+            const [geminiResult, openaiResult, grokResult, manusResult] = await Promise.all([
                 callGemini(promptToUse),
                 callOpenAI(promptToUse),
+                callGrok(promptToUse),
                 callManus(promptToUse)
             ]);
 
             const geminiEstimate = toEstimate(geminiResult?.marketValue || geminiResult?.finalEstimate || geminiResult?.replacementCost);
             const openaiEstimate = toEstimate(openaiResult?.marketValue || openaiResult?.finalEstimate || openaiResult?.replacementCost);
+            const grokEstimate = toEstimate(grokResult?.marketValue || grokResult?.finalEstimate || grokResult?.replacementCost);
             const manusEstimate = toEstimate(manusResult?.marketValue || manusResult?.finalEstimate || manusResult?.replacementCost);
 
             const mergedComps = [
                 ...normalizeComps(geminiResult?.comps || geminiResult?.comparableSales),
                 ...normalizeComps(openaiResult?.comps || openaiResult?.comparableSales),
+                ...normalizeComps(grokResult?.comps || grokResult?.comparableSales),
                 ...normalizeComps(manusResult?.comps || manusResult?.comparableSales)
             ];
 
@@ -758,27 +868,30 @@ Return ONLY JSON in this schema:
             let rangeIsCompBased = false;
 
             if (propertyType === "commercial") {
-                const [geminiRentResult, openaiRentResult, manusRentResult] = await Promise.all([
+                const [geminiRentResult, openaiRentResult, grokRentResult, manusRentResult] = await Promise.all([
                     callGemini(rentalPrompt),
                     callOpenAI(rentalPrompt),
+                    callGrok(rentalPrompt),
                     callManus(rentalPrompt)
                 ]);
                 rentalComps = [
                     ...normalizeRentalComps(geminiRentResult?.rentalComps),
                     ...normalizeRentalComps(openaiRentResult?.rentalComps),
+                    ...normalizeRentalComps(grokRentResult?.rentalComps),
                     ...normalizeRentalComps(manusRentResult?.rentalComps)
                 ].slice(0, 12);
-                marketSnapshot = geminiRentResult?.market || openaiRentResult?.market || manusRentResult?.market || null;
+                marketSnapshot = geminiRentResult?.market || openaiRentResult?.market || grokRentResult?.market || manusRentResult?.market || null;
                 const rentEstimates = [
                     toEstimate(geminiRentResult?.monthlyRent),
                     toEstimate(openaiRentResult?.monthlyRent),
+                    toEstimate(grokRentResult?.monthlyRent),
                     toEstimate(manusRentResult?.monthlyRent),
                     toEstimate(roundToThousand((sqft || 3000) * 2))
                 ].filter((v): v is number => !!v);
                 const monthlyRent = rentEstimates.length ? averageNumbers(rentEstimates) : (sqft || 3000) * 2;
                 const incomeValue = roundToThousand(monthlyRent * 109);
 
-                const salesEstimates = [geminiEstimate, openaiEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
+                const salesEstimates = [geminiEstimate, openaiEstimate, grokEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
                 const salesAvg = salesEstimates.length ? averageNumbers(salesEstimates) : freeEstimate;
 
                 rangeLow = Math.min(salesAvg, incomeValue);
@@ -793,10 +906,11 @@ Return ONLY JSON in this schema:
                   </div>
                 `;
             } else if (propertyType === "industrial") {
-                const estimates = [geminiEstimate, openaiEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
+                const estimates = [geminiEstimate, openaiEstimate, grokEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
                 replacementExamples = [
                     ...(Array.isArray(geminiResult?.replacementExamples) ? geminiResult.replacementExamples : []),
                     ...(Array.isArray(openaiResult?.replacementExamples) ? openaiResult.replacementExamples : []),
+                    ...(Array.isArray(grokResult?.replacementExamples) ? grokResult.replacementExamples : []),
                     ...(Array.isArray(manusResult?.replacementExamples) ? manusResult.replacementExamples : [])
                 ].map((item: any) => ({
                     address: String(item?.address || "").trim(),
@@ -817,19 +931,23 @@ Return ONLY JSON in this schema:
                   </div>
                 `;
             } else if (propertyType === "lot") {
-                const estimates = [geminiEstimate, openaiEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
+                const estimates = [geminiEstimate, openaiEstimate, grokEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
                 rangeLow = estimates.length ? Math.min(...estimates) : freeEstimate;
                 rangeHigh = estimates.length ? Math.max(...estimates) : freeEstimate;
                 suggested = roundToThousand(estimates.length ? averageNumbers(estimates) : freeEstimate);
                 reportText = `
                   <div class="space-y-2 text-sm">
                     <p><strong>Land valuation summary</strong></p>
-                    <p>Best & highest use: ${(geminiResult?.bestUse || openaiResult?.bestUse || "Residential build").toString()}</p>
+                    <p>Best & highest use: ${(geminiResult?.bestUse || openaiResult?.bestUse || grokResult?.bestUse || "Residential build").toString()}</p>
                   </div>
                 `;
             } else {
-                const estimates = [geminiEstimate, openaiEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
+                const estimates = [geminiEstimate, openaiEstimate, grokEstimate, manusEstimate, freeEstimate].filter((v): v is number => !!v);
                 const compBand = getCompBand(comps);
+                const valueDrivers = [geminiResult, grokResult, openaiResult, manusResult].find((result) =>
+                    Array.isArray(result?.valueDrivers) && result.valueDrivers.length
+                )?.valueDrivers;
+                const providerNotes = geminiResult?.notes || grokResult?.notes || openaiResult?.notes || manusResult?.notes;
                 if (compBand) {
                     rangeIsCompBased = true;
                     const compPrices = uniqueSortedCompPrices(comps);
@@ -857,10 +975,10 @@ Return ONLY JSON in this schema:
                     <p><strong>Residential valuation summary</strong></p>
                     <p>We set the range from comparable sales: the second-lowest comp to the second-highest comp when enough comps are available.</p>
                     ${comps.some((comp: any) => comp.modeled) ? `<p>Live comp providers were unavailable, so this run used a modeled local comp spread until external comps return.</p>` : ""}
-                    ${Array.isArray(geminiResult?.valueDrivers) && geminiResult.valueDrivers.length
-                      ? `<ul>${geminiResult.valueDrivers.slice(0, 4).map((item: string) => `<li>${item}</li>`).join("")}</ul>`
+                    ${Array.isArray(valueDrivers) && valueDrivers.length
+                      ? `<ul>${valueDrivers.slice(0, 4).map((item: string) => `<li>${item}</li>`).join("")}</ul>`
                       : ""}
-                    ${geminiResult?.notes ? `<p>${geminiResult.notes}</p>` : ""}
+                    ${providerNotes ? `<p>${providerNotes}</p>` : ""}
                   </div>
                 `;
             }
@@ -871,6 +989,7 @@ Return ONLY JSON in this schema:
                 rangeHigh,
                 geminiEstimate,
                 openaiEstimate,
+                grokEstimate,
                 manusEstimate,
                 freeEstimate,
                 report: reportText,
@@ -893,6 +1012,7 @@ Return ONLY JSON in this schema:
                 rangeHigh: rangeIsCompBased ? responsePayload.rangeHigh : bumpValue(responsePayload.rangeHigh),
                 geminiEstimate: bumpValue(responsePayload.geminiEstimate),
                 openaiEstimate: bumpValue(responsePayload.openaiEstimate),
+                grokEstimate: bumpValue(responsePayload.grokEstimate),
                 manusEstimate: bumpValue(responsePayload.manusEstimate),
                 freeEstimate: bumpValue(responsePayload.freeEstimate)
             };
@@ -911,6 +1031,7 @@ Return ONLY JSON in this schema:
                 rangeHigh: Math.round(fallbackValue * 1.08 / 1000) * 1000,
                 geminiEstimate: null,
                 openaiEstimate: null,
+                grokEstimate: null,
                 manusEstimate: null,
                 freeEstimate: fallbackValue,
                 report: `<p><strong>Market Connection Limited</strong></p><p>We used a local fallback estimate while the AI services were unavailable.</p>`,

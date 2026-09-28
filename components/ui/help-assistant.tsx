@@ -174,7 +174,7 @@ export function HelpAssistant() {
                                 <div style="background: #f4f6f7; padding: 20px; text-align: center; border-top: 1px solid #eee;">
                                     <h3 style="margin: 0 0 5px; color: #2c3e50; font-size: 1em;">Visit Our Office</h3>
                                     <p style="margin: 0; color: #555; font-size: 0.85em;">
-                                        <strong>American Vista Real Estate</strong><br>11907 Bustleton Ave.<br>Philadelphia, PA 19116
+                                        <strong>Quinn and Wilson Realty</strong><br>Jenkintown, PA
                                     </p>
                                 </div>
                             </div>
@@ -190,7 +190,7 @@ export function HelpAssistant() {
                             <div style="font-family: inherit; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e1e1e1; margin: 0 auto;">
                                 <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 30px 20px; text-align: center;">
                                     <h2 style="margin: 0; font-weight: 700; font-size: 1.4em;">Built on Experience.</h2>
-                                    <p style="margin-top: 10px; opacity: 0.9; font-size: 0.9em;">HousingPA AI is the innovation arm of <strong>American Vista Real Estate</strong>.</p>
+                                    <p style="margin-top: 10px; opacity: 0.9; font-size: 0.9em;">SellerAI supports Quinn and Wilson Realty seller workflows.</p>
                                 </div>
                                 <div style="padding: 20px;">
                                     <h3 style="color: #2c3e50; margin-top: 0; font-size: 1.1em;">Not Just a Tech Company</h3>
@@ -198,7 +198,7 @@ export function HelpAssistant() {
                                         We apply the financial rigor of <strong>Commercial Real Estate</strong> to the residential market. The result? A system that sells your home with Wall Street efficiency and family business care.
                                     </p>
                                     <div style="background: #f8f9fa; border-left: 4px solid #27ae60; padding: 15px; border-radius: 4px;">
-                                        <h4 style="margin: 0 0 10px; color: #2c3e50; font-size: 0.95em;">The American Vista Advantage</h4>
+                                        <h4 style="margin: 0 0 10px; color: #2c3e50; font-size: 0.95em;">The Quinn and Wilson Advantage</h4>
                                         <ul style="padding-left: 20px; color: #555; font-size: 0.85em; margin: 0;">
                                             <li>In-House Maintenance Crews</li>
                                             <li>Asset Management Focus</li>
@@ -224,7 +224,7 @@ export function HelpAssistant() {
                                     </div>
                                 </div>
                                 <div style="background: #2c3e50; color: white; padding: 15px; text-align: center; font-size: 0.8em;">
-                                    <p style="margin: 0;">HousingPA AI is a service of <strong>American Vista Real Estate</strong><br>License #AB069631 · Philadelphia, PA</p>
+                                    <p style="margin: 0;">SellerAI is used with <strong>Quinn and Wilson Realty</strong><br>License #AB069631 · Jenkintown, PA</p>
                                 </div>
                             </div>
                         ` }} />

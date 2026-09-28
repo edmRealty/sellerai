@@ -109,7 +109,7 @@ export function schemaForPage(page: SeoPage) {
     "@context": "https://schema.org",
     "@graph": [
       { "@type": "Organization", "@id": "https://housingpa.com/#organization", name: "Housing Pro Assets", alternateName: "HousingPA", url: "https://housingpa.com/" },
-      { "@type": "RealEstateAgent", "@id": "https://housingpa.com/#american-vista", name: "American Vista Real Estate", parentOrganization: { "@id": "https://housingpa.com/#organization" } },
+      { "@type": "RealEstateAgent", "@id": "https://housingpa.com/#quinn-wilson", name: "Quinn and Wilson Realty", address: { "@type": "PostalAddress", addressLocality: "Jenkintown", addressRegion: "PA" }, parentOrganization: { "@id": "https://housingpa.com/#organization" } },
       { "@type": ["SoftwareApplication", "WebApplication", "Product"], "@id": `${appBaseUrl}/#sellerai`, name: "SellerAI", applicationCategory: "BusinessApplication", operatingSystem: "Web", provider: { "@id": "https://housingpa.com/#organization" }, description: page.directAnswer },
       { "@type": "WebPage", "@id": `${url}#webpage`, url, name: page.metaTitle, description: page.description, about: { "@id": `${appBaseUrl}/#sellerai` } },
       { "@type": "FAQPage", "@id": `${url}#faq`, mainEntity: page.faqs.map((faq) => ({ "@type": "Question", name: faq.question, acceptedAnswer: { "@type": "Answer", text: faq.answer } })) },

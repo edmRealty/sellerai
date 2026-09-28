@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Staff-only publish-readiness view for the selected listing file. */
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params;
   const ctx = await getAuthContext();
   if (!ctx.configured) return NextResponse.json({ configured: false, error: "not found" }, { status: 404 });
   if (!ctx.auth) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });

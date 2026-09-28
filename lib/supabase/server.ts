@@ -9,9 +9,9 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
  * Returns null when Supabase is not configured so callers can degrade
  * gracefully (the app then behaves as the localStorage-only prototype).
  */
-export function createSupabaseServerClient() {
+export async function createSupabaseServerClient() {
     if (!isSupabaseConfigured()) return null;
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     return createServerClient(supabaseUrl, supabaseAnonKey, {
         cookies: {
             getAll() {

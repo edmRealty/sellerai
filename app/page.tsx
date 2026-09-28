@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Flashlight } from "lucide-react";
+import { Flashlight, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import {
   isServerAuthAvailable,
@@ -15,7 +15,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const APP_VERSION = "v41";
-const VALUATION_CACHE_VERSION = "v41";
+const VALUATION_CACHE_VERSION = "v42-grok-features-consumer-notice";
 
 declare global {
   interface Window {
@@ -25,9 +25,13 @@ declare global {
 }
 
 const RES_FEATURES = [
-  "Backyard",
   "Finished basement",
+  "Hardwood floors",
+  "Recently renovated",
+  "Updated kitchen",
+  "Updated bathrooms",
   "Central air",
+  "Backyard",
   "Attached garage",
   "Detached garage",
   "Driveway / Parking",
@@ -188,6 +192,7 @@ type ListingData = {
   valuation: {
     gemini?: number;
     openai?: number;
+    grok?: number;
     manus?: number;
     free?: number;
     average?: number;
@@ -487,7 +492,15 @@ export default function Home() {
   const [reportMessage, setReportMessage] = useState("");
   const [reportEmail, setReportEmail] = useState("");
   const [reportSending, setReportSending] = useState(false);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
+  const [consumerPdfExpanded, setConsumerPdfExpanded] = useState(false);
+  const [consumerNoticeToken, setConsumerNoticeToken] = useState("");
+  const [consumerNoticeSigning, setConsumerNoticeSigning] = useState(false);
+  const [consumerNoticeError, setConsumerNoticeError] = useState<string | null>(null);
+  const [consumerSignatureReady, setConsumerSignatureReady] = useState(false);
+  const [consumerSignatureDrawing, setConsumerSignatureDrawing] = useState(false);
   const [listingAgreementExplainerOpen, setListingAgreementExplainerOpen] = useState(false);
   const [infoPrompt, setInfoPrompt] = useState<{
     id: string;
@@ -512,6 +525,8 @@ export default function Home() {
   const [customReasonError, setCustomReasonError] = useState<string | null>(null);
   const [introComplete, setIntroComplete] = useState(false);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const consumerSignatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const consumerSignatureCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const autocompleteRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const valuationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -892,6 +907,27 @@ export default function Home() {
     }
   }, [step, data.valuation.average]);
 
+  useEffect(() => {
+    if (step !== "consumer-notice") return;
+    const canvas = consumerSignatureCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ratio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const width = rect.width || 420;
+    const height = rect.height || 140;
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = "#111827";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    consumerSignatureCtxRef.current = ctx;
+  }, [step, consumerPdfExpanded]);
+
   const addMessage = (role: "assistant" | "user", content: string) => {
     setPostStepMessages((prev) => [...prev, { id: uid(), role, content }]);
   };
@@ -924,6 +960,14 @@ export default function Home() {
     setReportMessage("");
     setReportEmail("");
     setReportSending(false);
+    setAuthPromptOpen(false);
+    setShowAllFeatures(false);
+    setConsumerPdfExpanded(false);
+    setConsumerNoticeToken("");
+    setConsumerNoticeSigning(false);
+    setConsumerNoticeError(null);
+    setConsumerSignatureReady(false);
+    setConsumerSignatureDrawing(false);
     setInfoPrompt(null);
     setValuationSkipped(false);
     setLastValuationAt(null);
@@ -1180,6 +1224,8 @@ export default function Home() {
         valuation: {
           gemini: cachedPayload.geminiEstimate,
           openai: cachedPayload.openaiEstimate,
+          grok: cachedPayload.grokEstimate,
+          manus: cachedPayload.manusEstimate,
           free: cachedPayload.freeEstimate,
           average: price ?? undefined,
           rangeLow: cachedPayload.rangeLow,
@@ -1249,6 +1295,7 @@ export default function Home() {
         valuation: {
           gemini: payload.geminiEstimate,
           openai: payload.openaiEstimate,
+          grok: payload.grokEstimate,
           manus: payload.manusEstimate,
           free: payload.freeEstimate,
           average: price ?? undefined,
@@ -1447,7 +1494,7 @@ export default function Home() {
     try {
       const pageUrl = typeof window !== "undefined" ? window.location.href : "";
       const userAgent = typeof window !== "undefined" ? window.navigator.userAgent : "";
-      await fetch("/api/send-email", {
+      const response = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1462,11 +1509,13 @@ export default function Home() {
           userAgent
         })
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.success !== true) throw new Error("Email delivery unavailable");
       addMessage("assistant", "Thanks — your report was sent to the team.");
       setReportMessage("");
       setReportOpen(false);
     } catch {
-      setFeedback("Could not send the report. Please try again.");
+      setFeedback("Report delivery is unavailable. Your message has not been sent.");
     } finally {
       setReportSending(false);
     }
@@ -1524,6 +1573,9 @@ export default function Home() {
         })
       });
       const payload = await res.json();
+      if (!res.ok || payload?.success !== true || payload?.mocked) {
+        throw new Error("Email delivery unavailable");
+      }
       if (payload?.activationCode) {
         setActivationCode(String(payload.activationCode));
       }
@@ -1622,6 +1674,7 @@ export default function Home() {
   };
 
   const handlePropertyTypeChange = (nextType: ListingData["details"]["propertyType"]) => {
+    setShowAllFeatures(false);
     const nextFeatures =
       nextType === "industrial"
         ? INDUSTRIAL_FEATURES
@@ -1665,6 +1718,171 @@ export default function Home() {
       : `${details.propertyType} • ${details.useType} • ${formatKnownNumber(details.units)} unit${
           details.units === 1 ? "" : "s"
         } • ${formatKnownNumber(details.squareFeet, " sqft")}`;
+
+  const getFeatureOptions = () => {
+    if (data.details.propertyType === "industrial") {
+      return { visible: INDUSTRIAL_FEATURES, hidden: [] as string[] };
+    }
+    if (data.details.propertyType === "commercial") {
+      return { visible: COMMERCIAL_FEATURES, hidden: [] as string[] };
+    }
+    const selected = data.details.features;
+    const sqft = data.details.squareFeet || 0;
+    const baseCount = sqft >= 4000 ? RES_FEATURES.length : sqft >= 2500 ? 10 : sqft >= 1800 ? 8 : 6;
+    const selectedExtras = RES_FEATURES.filter((feature) => selected.includes(feature));
+    const ordered = Array.from(new Set([...selectedExtras, ...RES_FEATURES]));
+    const visibleCount = showAllFeatures ? ordered.length : baseCount;
+    return {
+      visible: ordered.slice(0, visibleCount),
+      hidden: ordered.slice(visibleCount)
+    };
+  };
+
+  const toggleFeature = (feature: string) => {
+    setData((prev) => {
+      const exists = prev.details.features.includes(feature);
+      return {
+        ...prev,
+        details: {
+          ...prev.details,
+          features: exists
+            ? prev.details.features.filter((item) => item !== feature)
+            : [...prev.details.features, feature]
+        }
+      };
+    });
+  };
+
+  const getCanvasPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+  };
+
+  const startConsumerSignature = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const ctx = consumerSignatureCtxRef.current;
+    if (!ctx) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const { x, y } = getCanvasPoint(event);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setConsumerSignatureDrawing(true);
+  };
+
+  const drawConsumerSignature = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const ctx = consumerSignatureCtxRef.current;
+    if (!consumerSignatureDrawing || !ctx) return;
+    const { x, y } = getCanvasPoint(event);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setConsumerSignatureReady(true);
+  };
+
+  const stopConsumerSignature = () => {
+    setConsumerSignatureDrawing(false);
+  };
+
+  const clearConsumerSignature = () => {
+    const canvas = consumerSignatureCanvasRef.current;
+    const ctx = consumerSignatureCtxRef.current;
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setConsumerSignatureReady(false);
+  };
+
+  const extractConsumerNoticeToken = (signUrl: string) => {
+    if (!signUrl) return "";
+    try {
+      const url = new URL(signUrl, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+      return url.searchParams.get("token") || "";
+    } catch {
+      const match = signUrl.match(/[?&]token=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+  };
+
+  const prepareConsumerNoticeToken = async () => {
+    if (consumerNoticeToken) return consumerNoticeToken;
+    if (!data.seller.email.trim() || !data.seller.email.includes("@")) {
+      throw new Error("Please add a valid email before signing.");
+    }
+    const res = await fetch("/api/consumer-notice/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        signerEmail: data.seller.email,
+        signerName: data.seller.name || "Seller",
+        address: data.address,
+        listingId:
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("seller_ai_listing_server_id") || undefined
+            : undefined
+      })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!payload?.signUrl) {
+      throw new Error(payload?.error || "Could not prepare the Consumer Notice signing link.");
+    }
+    const token = extractConsumerNoticeToken(payload.signUrl);
+    if (!token) {
+      throw new Error("Could not prepare the Consumer Notice signing token.");
+    }
+    setConsumerNoticeToken(token);
+    setData((prev) => ({
+      ...prev,
+      paperwork: {
+        ...prev.paperwork,
+        consumerNoticeStatus: payload?.emailSent === false ? "requested" : "sent",
+        consumerNoticeUrl: payload.signUrl
+      }
+    }));
+    return token;
+  };
+
+  const signConsumerNoticeInline = async () => {
+    if (!data.seller.name.trim()) {
+      setConsumerNoticeError("Please add your full name before signing.");
+      return;
+    }
+    if (!consumerSignatureReady) {
+      setConsumerNoticeError("Please sign in the box before continuing.");
+      return;
+    }
+    setConsumerNoticeSigning(true);
+    setConsumerNoticeError(null);
+    setFeedback("Signing Consumer Notice...");
+    try {
+      const token = await prepareConsumerNoticeToken();
+      const signatureDataUrl = consumerSignatureCanvasRef.current?.toDataURL("image/png") || "";
+      const res = await fetch("/api/consumer-notice/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          signerName: data.seller.name,
+          signatureDataUrl
+        })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) {
+        throw new Error(payload?.error || "Failed to sign Consumer Notice.");
+      }
+      setData((prev) => ({
+        ...prev,
+        paperwork: { ...prev.paperwork, consumerNoticeStatus: "signed" }
+      }));
+      addMessage("user", "I reviewed and signed the Consumer Notice.");
+      addMessage("assistant", "Consumer Notice is signed. Now we can continue with the licensed-agent listing workflow.");
+      setFeedback(payload?.warning ? `Signed. Email delivery warning: ${payload.warning}` : "Consumer Notice signed.");
+      setStep("listing-intro");
+    } catch (error: any) {
+      setConsumerNoticeError(String(error?.message || "Could not sign Consumer Notice. Please try again."));
+    } finally {
+      setConsumerNoticeSigning(false);
+    }
+  };
 
   const handleIntroContinue = () => {
     addMessage("user", "Let’s get started.");
@@ -1810,9 +2028,9 @@ export default function Home() {
     );
     addMessage(
       "assistant",
-      "Next is the Pennsylvania Consumer Notice. It is not a contract; it is a required disclosure step. I’ll ask the agent to send it by DocuSign and keep this file pending until the agent releases it."
+      "Before we continue as a licensed agent, Pennsylvania law requires that you read and sign the Consumer Notice. Please review it on screen and sign so we can proceed."
     );
-    await requestConsumerNoticeFromAdmin({ officialOwner });
+    setStep("consumer-notice");
   };
 
   const handleFinalPriceContinue = () => {
@@ -1929,9 +2147,9 @@ export default function Home() {
     addMessage("user", role === "owner" ? "I’m the owner." : "I’m a representative.");
     addMessage(
       "assistant",
-      "First, I’ll notify the Agent to send the Pennsylvania Consumer Notice through DocuSign."
+      "Before we continue as a licensed agent, Pennsylvania law requires that you read and sign the Consumer Notice."
     );
-    requestConsumerNoticeFromAdmin({ officialOwner });
+    setStep("consumer-notice");
   };
 
   const sendConsumerNotice = async () => {
@@ -2021,31 +2239,7 @@ export default function Home() {
       setFeedback("Please confirm the broker fee.");
       return;
     }
-    setFeedback(null);
-    setData((prev) => ({
-      ...prev,
-      paperwork: { ...prev.paperwork, listingAgreementStatus: "sent" }
-    }));
-    fetch("/api/send-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "admin_listing_agreement",
-        address: data.address,
-        name: data.seller.name || "Seller",
-        to: "",
-        requesterEmail: data.seller.email,
-        phone: data.seller.phone,
-        finalPrice: data.finalPrice,
-        mailingAddress: data.paperwork.mailingAddress,
-        brokerFee: "1%"
-      })
-    }).catch(() => null);
-    addMessage(
-      "assistant",
-      "Great! I sent the Listing Agreement request to your Agent for review. This can take between 5-60 minutes. We will notify you when ready."
-    );
-    setStep("listing-wait");
+    setFeedback("Agreement delivery is unavailable. No request or agreement has been sent. Agent review is required.");
   };
 
   const handleDualAgencyContinue = () => {
@@ -2150,7 +2344,7 @@ export default function Home() {
     }
     setLoading(true);
     try {
-      await fetch("/api/send-email", {
+      const response = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2163,10 +2357,12 @@ export default function Home() {
           isMultiFamily: data.paperwork.isMultiFamily
         })
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.success !== true) throw new Error("Email delivery unavailable");
       addMessage("assistant", "Thanks — I notified the team about the uploaded documents.");
       setFeedback(null);
     } catch {
-      setFeedback("Could not notify the team. Please retry.");
+      setFeedback("Document notification is unavailable. The team has not been notified.");
     } finally {
       setLoading(false);
     }
@@ -2285,9 +2481,9 @@ export default function Home() {
       case "ownership":
         return "Please choose whether you are the owner or representative below.";
       case "consumer-notice":
-        return "Please choose an option below for the Consumer Notice.";
+        return "Please read and sign the Consumer Notice below.";
       case "consumer-wait":
-        return "Pending Agent Consumer Notice approval. The Agent must send the DocuSign Consumer Notice and approve the file before the workflow continues.";
+        return "Consumer Notice is pending. Open the on-screen notice and sign before the workflow continues.";
       case "listing-intro":
         return "Ready to prep the listing agreement? Choose below.";
       case "listing-details":
@@ -2475,6 +2671,10 @@ export default function Home() {
         return (
           <div className="message assistant">
             <div className="card-bubble intro-bubble">
+              <div className="assistant-intro-profile">
+                <img src="/Ben-Hen-Head.jpg" alt="Beny Hen" />
+                <span>Beny Hen</span>
+              </div>
               <h3>Welcome</h3>
               <TypewriterText text={INTRO_TEXT} onDone={() => setIntroComplete(true)} />
               <div className="subject-property-intro">
@@ -2774,6 +2974,9 @@ export default function Home() {
           </div>
         );
       case "features":
+        {
+          const featureOptions = getFeatureOptions();
+          const hiddenFeatureCount = featureOptions.hidden.length;
         return (
           <div className="message assistant">
             <div className="card-bubble">
@@ -2782,15 +2985,15 @@ export default function Home() {
                 Pick standout features so we can compare the property more intelligently and later turn the strongest points into marketing.
               </p>
               <div className="step-explainer">
-                Some features affect value, some affect buyer confidence, and some just help the listing feel complete. Choose what you know; we can add more later.
+                These features are sent into the pricing/comps review, so pick what is true. The app starts with the most common value signals and opens more options for larger or more complex properties.
+              </div>
+              <div className="feature-selected-summary">
+                {data.details.features.length
+                  ? `${data.details.features.length} selected: ${data.details.features.slice(0, 5).join(", ")}${data.details.features.length > 5 ? "..." : ""}`
+                  : "No features selected yet."}
               </div>
               <div className="option-grid">
-                {(data.details.propertyType === "industrial"
-                  ? INDUSTRIAL_FEATURES
-                  : data.details.propertyType === "commercial"
-                  ? COMMERCIAL_FEATURES
-                  : RES_FEATURES
-                ).map((feature) => (
+                {featureOptions.visible.map((feature) => (
                   <label
                     key={feature}
                     className={
@@ -2800,26 +3003,23 @@ export default function Home() {
                     <input
                       type="checkbox"
                       checked={data.details.features.includes(feature)}
-                      onChange={() => {
-                        setData((prev) => {
-                          const exists = prev.details.features.includes(feature);
-                          return {
-                            ...prev,
-                            details: {
-                              ...prev.details,
-                              features: exists
-                                ? prev.details.features.filter((item) => item !== feature)
-                                : [...prev.details.features, feature]
-                            }
-                          };
-                        });
-                      }}
+                      onChange={() => toggleFeature(feature)}
                     />
                     {feature}
                   </label>
                 ))}
               </div>
               <div className="quick-actions">
+                {hiddenFeatureCount > 0 && (
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowAllFeatures(true)}>
+                    Show more features ({hiddenFeatureCount})
+                  </button>
+                )}
+                {showAllFeatures && data.details.propertyType === "residential" && (
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowAllFeatures(false)}>
+                    Show fewer
+                  </button>
+                )}
                 <button type="button" className="btn btn-primary" onClick={handleFeaturesContinue}>
                   Continue to pricing
                 </button>
@@ -2842,6 +3042,7 @@ export default function Home() {
             </div>
           </div>
         );
+        }
       case "valuation":
         const valuationSteps = [
           { icon: "🧠", label: "AI sources" },
@@ -3266,9 +3467,9 @@ export default function Home() {
                 <div className="notice-next-step">
                   <span className="notice-badge">Next</span>
                   <div>
-                    <strong>Consumer Notice by DocuSign</strong>
+                    <strong>Read and sign the PA Consumer Notice</strong>
                     <p>
-                      After you proceed, the Agent will receive an email to send the Consumer Notice for review and eSign. This is not a contract. It is a mandatory Pennsylvania disclosure step.
+                      After you proceed, the Consumer Notice opens on screen so you can read it and sign with your finger, stylus, or mouse. This is not a contract. It is a mandatory Pennsylvania disclosure step.
                     </p>
                   </div>
                 </div>
@@ -3280,7 +3481,7 @@ export default function Home() {
                   onClick={handleAcknowledgementsContinue}
                   disabled={loading}
                 >
-                  {loading ? "Notifying..." : "Proceed: notify Agent"}
+                  {loading ? "Opening..." : "Continue to Consumer Notice"}
                 </button>
                 <button
                   type="button"
@@ -3569,22 +3770,66 @@ export default function Home() {
             <div className="card-bubble">
               <h3>Consumer Notice</h3>
               <p className="step-intro">
-                First, request the Consumer Notice by email so the Agent can prepare the eSign package.
+                Before we proceed as a licensed agent, I am obligated to have you read and sign this paper according to Pennsylvania law.
               </p>
               <div className="step-explainer">
-                This is not a contract. It is a required Pennsylvania disclosure step before the listing agreement workflow continues.
+                Please read the Consumer Notice on screen and sign below so we can continue. This is not a listing agreement or sales contract.
               </div>
-              <p className="summary-text">
-                The Agent will send it to {data.seller.email ? data.seller.email : "the email on file"} after preparing the eSign package.
-              </p>
+              <div className="consumer-notice-panel">
+                <div className="consumer-notice-reader">
+                  <div className="consumer-notice-reader-header">
+                    <strong>PA Consumer Notice</strong>
+                    <button
+                      type="button"
+                      className="consumer-expand-button"
+                      onClick={() => setConsumerPdfExpanded(true)}
+                      aria-label="Open Consumer Notice large"
+                    >
+                      □
+                    </button>
+                  </div>
+                  <iframe
+                    title="Pennsylvania Consumer Notice"
+                    src="/docs/consumer-notice.pdf"
+                    className="consumer-notice-iframe"
+                  />
+                </div>
+                <div className="consumer-sign-panel">
+                  <div className="sign-field">
+                    <label>Signer</label>
+                    <div className="sign-value">{data.seller.name || "Add your full name above first"}</div>
+                  </div>
+                  <div className="sign-field">
+                    <label>Property</label>
+                    <div className="sign-value">{data.address}</div>
+                  </div>
+                  <div className="sign-field">
+                    <label>Signature</label>
+                    <canvas
+                      ref={consumerSignatureCanvasRef}
+                      className="signature-pad consumer-signature-pad"
+                      onPointerDown={startConsumerSignature}
+                      onPointerMove={drawConsumerSignature}
+                      onPointerUp={stopConsumerSignature}
+                      onPointerLeave={stopConsumerSignature}
+                      onPointerCancel={stopConsumerSignature}
+                    />
+                    <div className="consumer-signature-help">Sign with your finger, stylus, or mouse.</div>
+                  </div>
+                  {consumerNoticeError && <p className="sign-error">{consumerNoticeError}</p>}
+                </div>
+              </div>
               <div className="quick-actions">
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => requestConsumerNoticeFromAdmin()}
-                  disabled={loading}
+                  onClick={signConsumerNoticeInline}
+                  disabled={consumerNoticeSigning}
                 >
-                  {loading ? "Sending request..." : "Send me the Consumer Notice by email"}
+                  {consumerNoticeSigning ? "Signing..." : "I read it — sign and continue"}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={clearConsumerSignature}>
+                  Clear signature
                 </button>
                 <button
                   type="button"
@@ -3614,17 +3859,17 @@ export default function Home() {
             <div className="card-bubble">
               <h3>Pending Consumer Notice</h3>
               <p className="step-intro">
-                The app is paused here until the Agent sends and approves the completed Consumer Notice.
+                The app is paused here until the Consumer Notice is reviewed and signed.
               </p>
               <div className="step-explainer">
-                This is not a contract. It is a mandatory Pennsylvania disclosure step that must be reviewed and eSigned before we continue the listing workflow.
+                This is not a contract. It is a mandatory Pennsylvania disclosure step that must be reviewed before we continue the listing workflow.
               </div>
               <div className="pending-panel">
                 <div className="pending-status">
                   <span className="pending-dot" />
                   <div>
-                    <strong>Pending Agent approval</strong>
-                    <p>The Agent should send the Consumer Notice by DocuSign, then approve this file when the checkpoint is complete.</p>
+                    <strong>Signature needed</strong>
+                    <p>Open the Consumer Notice on screen and sign with your finger, stylus, or mouse.</p>
                   </div>
                 </div>
                 <dl className="pending-details">
@@ -3656,10 +3901,10 @@ export default function Home() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => requestConsumerNoticeFromAdmin({ renotify: true })}
+                  onClick={() => setStep("consumer-notice")}
                   disabled={loading}
                 >
-                  {loading ? "Sending request..." : "Send me the Consumer Notice by email"}
+                  Open Consumer Notice
                 </button>
                 <button type="button" className="btn btn-ghost" onClick={markConsumerNoticeSigned}>
                   Agent: approve after CN complete
@@ -4138,10 +4383,66 @@ export default function Home() {
   };
 
   const workflowProgress = WORKFLOW_PROGRESS[step] || WORKFLOW_PROGRESS.confirm;
+  const addressSidebarItems = listingHistory
+    .filter((item) => item.address.trim().length > 0)
+    .slice(0, 10);
+  const hasActiveAddress = data.address.trim().length > 0;
+
+  const handleRefreshApp = () => {
+    router.refresh();
+    setFeedback("Refreshed.");
+  };
 
   return (
     <div className="app-shell seller-app">
+      <aside className="seller-address-sidebar" aria-label="Saved properties">
+        <div className="seller-address-sidebar-header">
+          <div>
+            <div className="seller-address-sidebar-title">Properties</div>
+            <p>Sell more than one property from one place.</p>
+          </div>
+          <button type="button" className="seller-address-new" onClick={handleNewListing}>
+            New
+          </button>
+        </div>
+        <div className="seller-address-list">
+          {hasActiveAddress && !addressSidebarItems.some((item) => item.address === data.address) && (
+            <button type="button" className="seller-address-item active" onClick={() => setView("chat")}>
+              <span>{data.address}</span>
+              <small>Current property</small>
+            </button>
+          )}
+          {addressSidebarItems.map((item) => (
+            <div
+              key={item.id}
+              className={item.address === data.address ? "seller-address-row active" : "seller-address-row"}
+            >
+              <button type="button" className="seller-address-item" onClick={() => openListing(item, "view")}>
+                <span>{item.address}</span>
+                <small>{item.data.finalPrice ? `$${item.data.finalPrice.toLocaleString()}` : "Saved property"}</small>
+              </button>
+              <button
+                type="button"
+                className="seller-address-remove"
+                onClick={() => deleteListing(item.id)}
+                aria-label={`Remove ${item.address}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {addressSidebarItems.length === 0 && !hasActiveAddress && (
+            <div className="seller-address-empty">Your property addresses will appear here.</div>
+          )}
+        </div>
+      </aside>
       <div className="seller-help-menu" ref={helpMenuRef}>
+        <button type="button" className="seller-sign-in-link" onClick={() => setAuthPromptOpen(true)}>
+          Sign in / sign up
+        </button>
+        <button type="button" className="seller-refresh-trigger" onClick={handleRefreshApp} aria-label="Refresh">
+          <RefreshCw size={16} strokeWidth={2.4} />
+        </button>
         <button type="button" className="seller-theme-trigger" onClick={toggleTheme}>
           <Flashlight size={15} strokeWidth={2.2} />
           <span>{theme === "dark" ? "Light" : "Dark"}</span>
@@ -4161,7 +4462,7 @@ export default function Home() {
             <a href="/about">About us</a>
             <a href="mailto:ben@housingpa.com">Contact us</a>
             <button type="button" onClick={handleNewListing}>Start a new listing</button>
-            <button type="button" onClick={() => setReportOpen(true)}>Report a problem</button>
+            <button type="button" onClick={() => { setFeedback(null); setReportOpen(true); }}>Report a problem</button>
             <a href="https://housingpa.com/valuator.html">AI Valuator</a>
             <a href="https://housingpa.com/offers/">Offers</a>
             <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy Policy</a>
@@ -4288,13 +4589,9 @@ export default function Home() {
         </span>
         <span className="footer-links">
           Informational only. Not an appraisal. © 2026
-          <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy</a>
-          <a href="https://housingpa.com/terms" target="_blank" rel="noreferrer">Terms</a>
-          <a href="https://investor.housingpa.com/testers" target="_blank" rel="noreferrer">Free tester group</a>
-          <a href="/seller-tools">How it works</a>
-          <a href="https://value.housingpa.com/" target="_blank" rel="noreferrer">Try Commercial</a>
-          <a href="https://housingpa.com/" target="_blank" rel="noreferrer">Home</a>
-          <a href="/agent/login">Sign in</a>
+          <button type="button" className="footer-menu-button" onClick={() => setHelpMenuOpen(true)}>
+            Go to Menu
+          </button>
         </span>
       </footer>
       <Modal
@@ -4323,6 +4620,7 @@ export default function Home() {
             />
           </label>
         </div>
+        {feedback && <p role="status" className="summary-text">{feedback}</p>}
         <div className="quick-actions" style={{ marginTop: 16 }}>
           <button
             type="button"
@@ -4342,6 +4640,19 @@ export default function Home() {
         </div>
       </Modal>
       <Modal
+        isOpen={consumerPdfExpanded}
+        onClose={() => setConsumerPdfExpanded(false)}
+        title="Pennsylvania Consumer Notice"
+      >
+        <div className="consumer-notice-expanded">
+          <iframe
+            title="Pennsylvania Consumer Notice large"
+            src="/docs/consumer-notice.pdf"
+            className="consumer-notice-expanded-frame"
+          />
+        </div>
+      </Modal>
+      <Modal
         isOpen={listingAgreementExplainerOpen}
         onClose={() => setListingAgreementExplainerOpen(false)}
         title="How the 1% listing agreement works"
@@ -4352,6 +4663,24 @@ export default function Home() {
         <div className="quick-actions" style={{ marginTop: 16 }}>
           <button type="button" className="btn btn-primary" onClick={() => setListingAgreementExplainerOpen(false)}>
             Got it
+          </button>
+        </div>
+      </Modal>
+      <Modal
+        isOpen={authPromptOpen}
+        onClose={() => setAuthPromptOpen(false)}
+        title="Save your history"
+      >
+        <p className="summary-text">
+          Don&apos;t lose your property history. Sign in or create an account so your addresses, notes,
+          and listing progress stay saved for next time.
+        </p>
+        <div className="quick-actions" style={{ marginTop: 16 }}>
+          <a className="btn btn-primary" href="/agent/login">
+            Sign in / sign up
+          </a>
+          <button type="button" className="btn btn-ghost" onClick={() => setAuthPromptOpen(false)}>
+            Not yet
           </button>
         </div>
       </Modal>

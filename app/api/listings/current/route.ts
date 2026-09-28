@@ -20,13 +20,13 @@ export async function GET(req: Request) {
 
     let query = supabase
         .from('listings')
-        .select('id, address, step, status, working_price, consumer_notice_status, listing_agreement_status, data, updated_at');
+        .select('id, address, step, status, working_price, consumer_notice_status, listing_agreement_status, data, updated_at')
+        .eq('seller_id', user.id);
 
     if (listingId) {
         query = query.eq('id', listingId);
     } else {
         query = query
-            .eq('seller_id', user.id)
             .neq('status', 'archived')
             .order('updated_at', { ascending: false })
             .limit(1);

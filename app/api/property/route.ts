@@ -5,7 +5,7 @@ import {
   MAINTENANCE_MESSAGE,
   isAiServiceDownError,
   isMaintenanceError,
-  notifyAndThrowMaintenance
+  notifyAdminAiIssue
 } from "@/lib/ai-service-health";
 import { enrichPropertyFromTrustedSources, type TrustedPropertyDetails } from "@/lib/property-data-providers";
 
@@ -24,7 +24,7 @@ const manusModel = process.env.MANUS_MODEL || "manus-1";
 const manusLiteModel = process.env.MANUS_LITE_MODEL || manusModel;
 const grokApiKey = process.env.XAI_API_KEY || process.env.GROK_API_KEY || "";
 const grokApiUrl = process.env.XAI_API_URL || process.env.GROK_API_URL || "https://api.x.ai/v1/chat/completions";
-const grokModel = process.env.XAI_MODEL || process.env.GROK_MODEL || "";
+const grokModel = process.env.XAI_MODEL || process.env.GROK_MODEL || "grok-4.7";
 const geoapifyKey = process.env.GEOAPIFY_API_KEY || "";
 const CENSUS_API_KEY = process.env.CENSUS_API_KEY || "";
 const MAPILLARY_ACCESS_TOKEN = process.env.MAPILLARY_ACCESS_TOKEN || "";
@@ -39,9 +39,13 @@ const CACHE_TTL_MS = Number(process.env.AI_CACHE_TTL_MS) || 24 * 60 * 60 * 1000;
 const PROPERTY_CACHE_VERSION = "v4-trusted-property-sources";
 
 const FEATURE_OPTIONS = [
-  "Backyard",
   "Finished basement",
+  "Hardwood floors",
+  "Recently renovated",
+  "Updated kitchen",
+  "Updated bathrooms",
   "Central air",
+  "Backyard",
   "Attached garage",
   "Detached garage",
   "Driveway / Parking",
@@ -467,7 +471,7 @@ async function fetchManusPropertyDetails(prompt: string, clientId?: string) {
   } catch (error) {
     console.error("Manus lite property lookup failed:", error);
     if (isAiServiceDownError(error)) {
-      await notifyAndThrowMaintenance({
+      await notifyAdminAiIssue({
         provider: "Manus",
         route: "POST /api/property",
         error
@@ -505,7 +509,7 @@ async function fetchGrokPropertyDetails(prompt: string) {
   } catch (error) {
     console.error("Grok property lookup failed:", error);
     if (isAiServiceDownError(error)) {
-      await notifyAndThrowMaintenance({
+      await notifyAdminAiIssue({
         provider: "Grok",
         route: "POST /api/property",
         error
@@ -577,7 +581,7 @@ ${FEATURE_OPTIONS.map((f) => `"${f}"`).join(", ")}
     } catch (error) {
       console.error("Gemini property lookup failed:", error);
       if (isAiServiceDownError(error)) {
-        await notifyAndThrowMaintenance({
+        await notifyAdminAiIssue({
           provider: "Gemini",
           route: "POST /api/property",
           address,
@@ -623,7 +627,7 @@ ${FEATURE_OPTIONS.map((f) => `"${f}"`).join(", ")}
     } catch (error) {
       console.error("OpenAI property lookup failed:", error);
       if (isAiServiceDownError(error)) {
-        await notifyAndThrowMaintenance({
+        await notifyAdminAiIssue({
           provider: "OpenAI",
           route: "POST /api/property",
           address,
