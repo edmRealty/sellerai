@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Flashlight, RefreshCw } from "lucide-react";
+import { Flashlight, RefreshCw, PanelLeft, Menu, ArrowRight, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import {
   isServerAuthAvailable,
@@ -494,6 +494,7 @@ export default function Home() {
   const [reportSending, setReportSending] = useState(false);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
   const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
   const [consumerPdfExpanded, setConsumerPdfExpanded] = useState(false);
   const [consumerNoticeToken, setConsumerNoticeToken] = useState("");
@@ -4394,16 +4395,18 @@ export default function Home() {
   };
 
   return (
-    <div className="app-shell seller-app">
+    <div className={`app-shell seller-app ${propertiesOpen ? "properties-open" : ""}`}>
+      {propertiesOpen && <button className="properties-backdrop" aria-label="Close properties" onClick={() => setPropertiesOpen(false)} />}
       <aside className="seller-address-sidebar" aria-label="Saved properties">
         <div className="seller-address-sidebar-header">
           <div>
             <div className="seller-address-sidebar-title">Properties</div>
             <p>Sell more than one property from one place.</p>
           </div>
-          <button type="button" className="seller-address-new" onClick={handleNewListing}>
+          <button type="button" className="seller-address-new" onClick={() => { handleNewListing(); setPropertiesOpen(false); }}>
             New
           </button>
+          <button type="button" className="properties-close" aria-label="Close properties" onClick={() => setPropertiesOpen(false)}><X size={20} /></button>
         </div>
         <div className="seller-address-list">
           {hasActiveAddress && !addressSidebarItems.some((item) => item.address === data.address) && (
@@ -4417,7 +4420,7 @@ export default function Home() {
               key={item.id}
               className={item.address === data.address ? "seller-address-row active" : "seller-address-row"}
             >
-              <button type="button" className="seller-address-item" onClick={() => openListing(item, "view")}>
+              <button type="button" className="seller-address-item" onClick={() => { openListing(item, "view"); setPropertiesOpen(false); }}>
                 <span>{item.address}</span>
                 <small>{item.data.finalPrice ? `$${item.data.finalPrice.toLocaleString()}` : "Saved property"}</small>
               </button>
@@ -4437,18 +4440,19 @@ export default function Home() {
         </div>
       </aside>
       <div className="seller-help-menu" ref={helpMenuRef}>
+        <button type="button" className="seller-properties-trigger" title="Saved properties" aria-label="Saved properties" aria-expanded={propertiesOpen} onClick={() => { setPropertiesOpen((open) => !open); setHelpMenuOpen(false); }}><PanelLeft size={20} /></button>
         <button type="button" className="seller-sign-in-link" onClick={() => setAuthPromptOpen(true)}>
           Sign in / sign up
         </button>
-        <button type="button" className="seller-refresh-trigger" onClick={handleRefreshApp} aria-label="Refresh">
+        <button type="button" className="seller-refresh-trigger" onClick={handleRefreshApp} aria-label="Refresh" title="Refresh">
           <RefreshCw size={16} strokeWidth={2.4} />
         </button>
-        <button type="button" className="seller-theme-trigger" onClick={toggleTheme}>
+        <button type="button" className="seller-theme-trigger" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"}>
           <Flashlight size={15} strokeWidth={2.2} />
           <span>{theme === "dark" ? "Light" : "Dark"}</span>
         </button>
-        <button type="button" className="seller-help-trigger" onClick={() => setHelpMenuOpen((prev) => !prev)}>
-          Menu
+        <button type="button" className="seller-help-trigger" aria-label="Menu" title="Menu" aria-expanded={helpMenuOpen} onClick={() => setHelpMenuOpen((prev) => !prev)}>
+          <Menu size={20} /><span>Menu</span>
         </button>
         {helpMenuOpen && (
           <div className="seller-help-popover">
@@ -4475,7 +4479,7 @@ export default function Home() {
           {view === "landing" && (
             <section className="hero">
               <div className="seller-wordmark" aria-label="SellerAI">Seller<span>AI</span></div>
-              <h1>What Property You&apos;d like to sell?</h1>
+              <h1>What property would you like to sell?</h1>
               <form
                 className="search-form"
                 onSubmit={(e) => {
@@ -4495,8 +4499,8 @@ export default function Home() {
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <button className="btn btn-primary search-submit" type="submit" disabled={loading}>
-                    {loading ? "Searching..." : "Continue"}
+                  <button className="btn btn-primary search-submit" type="submit" disabled={loading} aria-label={loading ? "Searching" : "Continue"} title="Continue">
+                    <span>{loading ? "Searching..." : "Continue"}</span><ArrowRight size={22} />
                   </button>
                 </div>
                 <p className="hero-start-note">
@@ -4588,7 +4592,9 @@ export default function Home() {
           An AI-assisted listing workflow for organizing property details, pricing inputs, paperwork, and next steps before a seller review.
         </span>
         <span className="footer-links">
-          Informational only. Not an appraisal. © 2026
+          <span className="footer-disclaimer">Info only. Not an appraisal.</span>
+          <a href="https://housingpa.com/privacy-policy" target="_blank" rel="noreferrer">Privacy</a>
+          <a href="https://housingpa.com/terms" target="_blank" rel="noreferrer">Terms</a>
           <button type="button" className="footer-menu-button" onClick={() => setHelpMenuOpen(true)}>
             Go to Menu
           </button>

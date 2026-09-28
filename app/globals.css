@@ -3183,6 +3183,10 @@ body:has(.seller-app) {
 
 .seller-help-trigger,
 .seller-theme-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid rgba(15, 23, 42, 0.12);
   background: #0f172a;
   color: #fff;
@@ -3190,6 +3194,217 @@ body:has(.seller-app) {
   padding: 10px 16px;
   font-weight: 800;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+}
+
+.seller-properties-trigger,
+.properties-close,
+.properties-backdrop {
+  display: none;
+}
+
+.search-submit svg {
+  display: none;
+}
+
+/* Keep mobile navigation, content, and footer in separate viewport rows. */
+@media (max-width: 1023px) {
+  html:has(.seller-app),
+  body:has(.seller-app) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .app-shell.seller-app,
+  .app-shell.seller-app:has(.main.landing) {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    grid-template-rows: calc(60px + env(safe-area-inset-top)) minmax(0, 1fr) auto;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .seller-app .seller-help-menu {
+    position: relative;
+    inset: auto;
+    grid-row: 1;
+    width: 100%;
+    min-width: 0;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    gap: 6px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .seller-app .seller-help-menu > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    box-shadow: none;
+    color: var(--text);
+    background: var(--panel);
+  }
+
+  .seller-app .seller-help-menu > .seller-sign-in-link {
+    width: auto;
+    flex: 0 1 auto;
+    margin-left: auto;
+    padding: 0 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .seller-app .seller-help-trigger span,
+  .seller-app .seller-theme-trigger span {
+    display: none;
+  }
+
+  .seller-app .seller-help-popover {
+    top: calc(56px + env(safe-area-inset-top));
+    right: 12px;
+    max-height: calc(100dvh - 90px);
+    overflow-y: auto;
+  }
+
+  .seller-app .main.landing,
+  .seller-app .main.chat-view {
+    grid-row: 2;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .seller-app .main.landing .main-inner {
+    height: 100%;
+    min-height: 0;
+    padding: 0 20px;
+  }
+
+  .seller-app .main.landing .hero {
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .seller-app .hero h1 {
+    max-width: 340px;
+    font-size: 34px;
+    line-height: 1.12;
+    font-weight: 700;
+  }
+
+  .seller-app .search-form {
+    position: relative;
+    max-width: 480px;
+  }
+
+  .seller-app .search-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    height: 68px;
+    padding: 8px 8px 8px 18px;
+    border-radius: 999px;
+  }
+
+  .seller-app .search-bar input {
+    width: 0;
+    min-width: 0;
+    flex: 1;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .seller-app .search-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .seller-app .search-submit span { display: none; }
+  .seller-app .search-submit svg { display: block; }
+
+  .seller-app .autocomplete-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    max-height: 24dvh;
+    overflow-y: auto;
+  }
+
+  .seller-app .seller-footer {
+    position: static;
+    grid-row: 3;
+    display: flex;
+    min-height: 42px;
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+    font-size: 10px;
+    border: 0;
+    background: var(--bg);
+  }
+
+  .seller-app .footer-links { gap: 10px; }
+  .seller-app .footer-description,
+  .seller-app .hero-start-note { display: none; }
+  .seller-app .footer-menu-button { display: none; }
+  .seller-app:has(.main.chat-view) .seller-footer { display: none; }
+
+  .seller-app .chat-header {
+    min-height: 0;
+    padding: 10px 16px;
+  }
+
+  .seller-app .chat-header h2 { max-width: none; font-size: 16px; }
+  .seller-app .chat-brand { display: none; }
+  .seller-app .chat-header .summary-text { overflow-wrap: anywhere; }
+  .seller-app .messages-area { overflow-y: auto; overscroll-behavior: contain; }
+  .seller-app .chat-input { flex-direction: row; gap: 8px; }
+  .seller-app .chat-input input { min-width: 0; width: 0; flex: 1; font-size: 16px; }
+  .seller-app .chat-input button { flex: 0 0 auto; }
+
+  .seller-app .seller-address-sidebar {
+    display: none;
+    width: min(300px, 85vw);
+    padding: 20px 14px;
+    z-index: 80;
+    background: var(--panel);
+  }
+
+  .seller-app.properties-open .seller-address-sidebar { display: flex; }
+  .seller-app .properties-close { display: inline-flex; border: 0; background: none; color: var(--text); padding: 4px; }
+  .seller-app .properties-backdrop { display: block; position: fixed; inset: 0; z-index: 75; background: #0006; border: 0; }
 }
 
 .seller-theme-trigger {
@@ -3264,54 +3479,3 @@ body:has(.seller-app) {
   background: #f8fafc;
 }
 
-@media (max-width: 1023px) {
-  .seller-app .seller-help-menu {
-    top: 12px;
-    right: 12px;
-    bottom: auto;
-    pointer-events: auto;
-  }
-
-  .seller-app .seller-help-trigger,
-  .seller-app .seller-theme-trigger {
-    display: inline-flex;
-  }
-
-  .seller-app .seller-help-popover {
-    top: 48px;
-    bottom: auto;
-    pointer-events: auto;
-  }
-}
-
-@media (min-width: 701px) and (max-width: 1023px) {
-  .seller-app {
-    --seller-sidebar-width: 236px;
-    --seller-footer-height: 48px;
-  }
-
-  .seller-app .main.landing {
-    padding: 0 18px var(--seller-footer-height);
-  }
-
-  .seller-app .hero {
-    gap: 18px;
-  }
-
-  .seller-app .hero h1 {
-    max-width: 560px;
-    font-size: 38px;
-  }
-
-  .seller-app .hero-start-note {
-    display: none;
-  }
-
-  .seller-address-sidebar {
-    padding: 16px 12px calc(var(--seller-footer-height) + 14px);
-  }
-
-  .footer-description {
-    display: none;
-  }
-}
