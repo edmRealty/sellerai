@@ -3381,14 +3381,30 @@ body:has(.seller-app) {
   .seller-app .footer-menu-button { display: none; }
   .seller-app:has(.main.chat-view) .seller-footer { display: none; }
 
-  .seller-app .chat-header {
+  .seller-app .main.chat-view .chat-header {
     min-height: 0;
-    padding: 10px 16px;
+    padding: 8px 16px;
+    display: block;
+    text-align: left;
   }
 
-  .seller-app .chat-header h2 { max-width: none; font-size: 16px; }
+  .seller-app .chat-header > div:first-child { width: 100%; min-width: 0; }
+  .seller-app .chat-header h2,
+  .seller-app .chat-header .chat-actions { display: none; }
   .seller-app .chat-brand { display: none; }
-  .seller-app .chat-header .summary-text { overflow-wrap: anywhere; }
+  .seller-app .chat-header .summary-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    text-align: left;
+  }
   .seller-app .messages-area { overflow-y: auto; overscroll-behavior: contain; }
   .seller-app .chat-input { flex-direction: row; gap: 8px; }
   .seller-app .chat-input input { min-width: 0; width: 0; flex: 1; font-size: 16px; }
